@@ -1080,7 +1080,7 @@ pub fn import_static_value_graph_into_store_with_allocation_budget(
                     .tuples
                     .get(id.0 as usize)
                     .ok_or_else(|| referential("static tuple identity is out of range"))?;
-                let mut children = Vec::with_capacity(wire.len());
+                let mut children = allocations.vector(wire.len()).map_err(ArtifactError::Allocation)?;
                 for child in wire {
                     children.push(relocated(&values, *child)?);
                 }
@@ -1091,7 +1091,7 @@ pub fn import_static_value_graph_into_store_with_allocation_budget(
                     .sequences
                     .get(id.0 as usize)
                     .ok_or_else(|| referential("static sequence identity is out of range"))?;
-                let mut children = Vec::with_capacity(wire.elements.len());
+                let mut children = allocations.vector(wire.elements.len()).map_err(ArtifactError::Allocation)?;
                 for child in &wire.elements {
                     children.push(relocated(&values, *child)?);
                 }
@@ -1116,7 +1116,7 @@ pub fn import_static_value_graph_into_store_with_allocation_budget(
                     .records
                     .get(id.0 as usize)
                     .ok_or_else(|| referential("static record identity is out of range"))?;
-                let mut fields = Vec::with_capacity(wire.len());
+                let mut fields = allocations.vector(wire.len()).map_err(ArtifactError::Allocation)?;
                 for field in wire {
                     fields.push((
                         key_from_wire_budgeted(&field.key, limits, allocations)?,
@@ -1137,9 +1137,12 @@ pub fn import_static_value_graph_into_store_with_allocation_budget(
                 if wire.components.len() != info.components.len() {
                     return Err(referential("static data component count disagrees with loaded contract"));
                 }
-                let mut components = Vec::with_capacity(info.components.len());
+                let mut components = allocations.vector(info.components.len()).map_err(ArtifactError::Allocation)?;
                 for (component, wire_component) in info.components.iter().zip(wire.components.iter()) {
-                    components.push((component.id.clone(), relocated(&values, wire_component.value)?));
+                    components.push((
+                        component.id.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?,
+                        relocated(&values, wire_component.value)?,
+                    ));
                 }
                 candidate
                     .intern_data(info, type_relocation.ty(wire.result_type)?, components, types)
@@ -1157,9 +1160,12 @@ pub fn import_static_value_graph_into_store_with_allocation_budget(
                 if wire.fields.len() != info.fields.len() {
                     return Err(referential("static variant field count disagrees with loaded contract"));
                 }
-                let mut fields = Vec::with_capacity(info.fields.len());
+                let mut fields = allocations.vector(info.fields.len()).map_err(ArtifactError::Allocation)?;
                 for (field, wire_field) in info.fields.iter().zip(wire.fields.iter()) {
-                    fields.push((field.id.clone(), relocated(&values, wire_field.value)?));
+                    fields.push((
+                        field.id.clone_with_allocation_budget(allocations).map_err(ArtifactError::Allocation)?,
+                        relocated(&values, wire_field.value)?,
+                    ));
                 }
                 candidate
                     .intern_variant(info, type_relocation.ty(wire.result_type)?, fields, types)
@@ -1174,11 +1180,11 @@ pub fn import_static_value_graph_into_store_with_allocation_budget(
                     .pack_backings
                     .get(wire.backing.0 as usize)
                     .ok_or_else(|| referential("static pack backing identity is out of range"))?;
-                let mut positionals = Vec::with_capacity(backing.positionals.len());
+                let mut positionals = allocations.vector(backing.positionals.len()).map_err(ArtifactError::Allocation)?;
                 for child in &backing.positionals {
                     positionals.push(relocated(&values, *child)?);
                 }
-                let mut labels = Vec::with_capacity(backing.labels.len());
+                let mut labels = allocations.vector(backing.labels.len()).map_err(ArtifactError::Allocation)?;
                 for label in &backing.labels {
                     labels.push(
                         *symbols
@@ -1186,15 +1192,15 @@ pub fn import_static_value_graph_into_store_with_allocation_budget(
                             .ok_or_else(|| referential("static pack label identity is out of range"))?,
                     );
                 }
-                let mut labeled_values = Vec::with_capacity(backing.labeled_values.len());
+                let mut labeled_values = allocations.vector(backing.labeled_values.len()).map_err(ArtifactError::Allocation)?;
                 for child in &backing.labeled_values {
                     labeled_values.push(relocated(&values, *child)?);
                 }
                 let backing_id = candidate
                     .intern_pack_backing_reconstructed(StaticPackBacking {
-                        positionals: positionals.into_boxed_slice(),
-                        labels: labels.into_boxed_slice(),
-                        labeled_values: labeled_values.into_boxed_slice(),
+                        positionals: allocations.boxed_slice(positionals).map_err(ArtifactError::Allocation)?,
+                        labels: allocations.boxed_slice(labels).map_err(ArtifactError::Allocation)?,
+                        labeled_values: allocations.boxed_slice(labeled_values).map_err(ArtifactError::Allocation)?,
                     })
                     .map_err(store_error)?;
                 candidate
