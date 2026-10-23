@@ -77,6 +77,15 @@ impl ComposedArtifactSemanticBase {
 
     pub(crate) fn generations(&self) -> &[StagedArtifactSemanticGeneration] { &self.generations }
 
+    /// Universe semantic snapshot retained inside the same composed authority.
+    /// Production composition guarantees exactly one Universe-owned generation.
+    pub(crate) fn universe_snapshot(&self) -> Option<&Arc<SemanticSnapshot>> {
+        self.generations
+            .iter()
+            .find(|generation| generation.modules.owns_project(phalcom_modules::ProjectIdentity::Universe))
+            .map(|generation| &generation.snapshot)
+    }
+
     /// Creates a mutable workspace whose immutable compiler authority is this
     /// entire composed package base. Artifact snapshots retain independent
     /// query provenance; the semantic seed is an exact owner-composed view.
