@@ -6574,6 +6574,35 @@ pub fn validate_and_import_semantic_world_with_module_world_and_project_universe
     validate_and_import_semantic_world_with_optional_module_world(world, Some(module_world), Some(projects), limits, transaction)
 }
 
+/// Imports one semantic world into a caller-owned receiving type generation.
+///
+/// The caller-visible store is updated only after the complete semantic import
+/// and the allocation child transaction both commit. Static-value composition
+/// remains a separate A4 step; this API shares type identity only.
+pub(crate) fn validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget(
+    world: SemanticWorldV4,
+    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    projects: &phalcom_modules::ProjectUniverse,
+    receiving_type_store: &mut TypeStore,
+    limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<ValidatedSemanticParts, ArtifactError> {
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = transaction.child(section_limit);
+    let mut candidate = receiving_type_store.clone();
+    let parts = validate_and_import_semantic_world_inner(
+        world,
+        Some(module_world),
+        Some(projects),
+        Some(&mut candidate),
+        limits,
+        &mut allocations,
+    )?;
+    transaction.commit_child(allocations).map_err(allocation_error)?;
+    *receiving_type_store = candidate;
+    Ok(parts)
+}
+
 /// Runs semantic reconstruction with stage reporting available to focused
 /// allocation diagnostics. This API exists only with the feature enabled.
 #[cfg(feature = "allocation-diagnostics")]
@@ -6596,7 +6625,7 @@ fn validate_and_import_semantic_world_with_optional_module_world(
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
     let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
-    let parts = validate_and_import_semantic_world_inner(world, module_world, projects, limits, &mut allocations)?;
+    let parts = validate_and_import_semantic_world_inner(world, module_world, projects, None, limits, &mut allocations)?;
     transaction.commit_child(allocations).map_err(allocation_error)?;
     Ok(parts)
 }
@@ -6612,6 +6641,7 @@ fn validate_and_import_semantic_world_inner(
     world: SemanticWorldV4,
     module_world: Option<&phalcom_compiler_artifact::module_world::ModuleWorldV2>,
     projects: Option<&phalcom_modules::ProjectUniverse>,
+    mut receiving_type_store: Option<&mut TypeStore>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
@@ -6640,10 +6670,19 @@ fn validate_and_import_semantic_world_inner(
         _ => return Err(referential("module world and project universe are required to resolve artifact semantic owners")),
     };
     record_import_allocation_diagnostic_stage(2, allocations);
-    // 3. Fresh TypeStore with checked TypeRelocation
-    let (mut type_store, type_relocation) = TypeStore::import_type_graph_with_owner_catalog_and_allocation_budget(
-        &world.type_graph, owner_catalog.as_ref(), limits, allocations,
-    )?;
+    // 3. Checked TypeRelocation. Multi-artifact callers may supply a private
+    // receiving candidate; legacy callers retain the exact fresh-store path.
+    let (mut type_store, type_relocation) = if let Some(receiver) = receiving_type_store.as_deref_mut() {
+        let mut candidate = receiver.clone();
+        let relocation = TypeStore::import_type_graph_into_store_with_owner_catalog_and_allocation_budget(
+            &mut candidate, &world.type_graph, owner_catalog.as_ref(), limits, allocations,
+        )?;
+        (candidate, relocation)
+    } else {
+        TypeStore::import_type_graph_with_owner_catalog_and_allocation_budget(
+            &world.type_graph, owner_catalog.as_ref(), limits, allocations,
+        )?
+    };
     record_import_allocation_diagnostic_stage(3, allocations);
 
     // 4. Structural primary contracts (shells, hierarchy, aliases, data/enum contracts, signatures)
@@ -7596,7 +7635,7 @@ fn validate_and_import_semantic_world_inner(
     record_import_allocation_diagnostic_stage(18, allocations);
 
     record_import_allocation_diagnostic_stage(19, allocations);
-    Ok(ValidatedSemanticParts {
+    let parts = ValidatedSemanticParts {
         structural_contracts,
         type_store,
         type_relocation,
@@ -7604,7 +7643,11 @@ fn validate_and_import_semantic_world_inner(
         static_relocation,
         owner_indexes,
         snapshot,
-    })
+    };
+    if let Some(receiver) = receiving_type_store.as_deref_mut() {
+        *receiver = parts.type_store.as_ref().clone();
+    }
+    Ok(parts)
 }
 
 #[cfg(test)]
