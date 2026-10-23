@@ -974,6 +974,34 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
     limits: &phalcom_compiler_artifact::ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
+    reconstruct_query_image_v4_with_owner_catalog_and_allocation_budget(image, snapshot, world, modules, None, limits, transaction)
+}
+
+/// Package-aware V4 query reconstruction. No project owner is recovered from
+/// display names or arbitrary artifact bytes.
+pub fn reconstruct_query_image_v4_with_project_catalog_and_allocation_budget(
+    image: QueryImageV4,
+    snapshot: &Arc<SemanticSnapshot>,
+    world: &CanonicalSemanticWorldId,
+    modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
+    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    limits: &phalcom_compiler_artifact::ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
+    let catalog = crate::artifact::identity::StableOwnerCatalog::new(module_world, modules.linked().universe.as_ref())
+        .map_err(CanonicalImageError::Artifact)?;
+    reconstruct_query_image_v4_with_owner_catalog_and_allocation_budget(image, snapshot, world, modules, Some(&catalog), limits, transaction)
+}
+
+fn reconstruct_query_image_v4_with_owner_catalog_and_allocation_budget(
+    image: QueryImageV4,
+    snapshot: &Arc<SemanticSnapshot>,
+    world: &CanonicalSemanticWorldId,
+    modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
+    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+    limits: &phalcom_compiler_artifact::ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
     use crate::artifact::query_policy::{CanonicalQueryPersistence, canonical_query_persistence, query_kind_from_portable, query_root_is_reusable};
 
     image.validate(limits).map_err(CanonicalImageError::Artifact)?;
@@ -998,11 +1026,11 @@ pub fn reconstruct_query_image_v4_with_allocation_budget(
     let root_start = census_checkpoint(&allocations);
     let mut root_keys = allocations.vector::<QueryKey>(image.supported_roots.len()).map_err(allocation_error)?;
     for root in &image.supported_roots {
-        root_keys.push(resolve_query_key_v3(&root.key, &mut allocations)?);
+        root_keys.push(resolve_query_key_v3(&root.key, &mut allocations, owner_catalog)?);
     }
     let mut evidence_keys = allocations.vector::<QueryKey>(image.dependency_evidence.len()).map_err(allocation_error)?;
     for evidence in &image.dependency_evidence {
-        evidence_keys.push(resolve_query_key_v3(&evidence.key, &mut allocations)?);
+        evidence_keys.push(resolve_query_key_v3(&evidence.key, &mut allocations, owner_catalog)?);
     }
     let key_count = root_keys
         .len()
@@ -1221,42 +1249,93 @@ fn clone_stable_declaration_with_budget(
     })
 }
 
-fn resolve_query_key_v3(key: &PortableQueryKeyV1, allocations: &mut AllocationBudget) -> Result<QueryKey, CanonicalImageError> {
+/// Current-schema owner resolution with a validated project/module catalog.
+fn consume_stable_module_authorized(
+    module: StableModuleRef, allocations: &mut AllocationBudget,
+    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+) -> Result<phalcom_modules::ModuleId, CanonicalImageError> {
+    match owner_catalog {
+        Some(catalog) => catalog.module_parts_with_allocation_budget(&module.project, &module.path, allocations)
+            .map_err(CanonicalImageError::Artifact),
+        None => consume_stable_module(module, allocations),
+    }
+}
+
+fn consume_stable_declaration_authorized(
+    declaration: StableDeclarationRef, allocations: &mut AllocationBudget,
+    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+) -> Result<crate::identity::DeclarationId, CanonicalImageError> {
+    match owner_catalog {
+        Some(catalog) => catalog.declaration_with_allocation_budget(&declaration, allocations).map_err(CanonicalImageError::Artifact),
+        None => consume_stable_declaration(declaration, allocations),
+    }
+}
+
+fn consume_stable_field_authorized(
+    field: StableFieldRef, allocations: &mut AllocationBudget,
+    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+) -> Result<crate::identity::FieldId, CanonicalImageError> {
+    match owner_catalog {
+        Some(catalog) => Ok(crate::identity::FieldId {
+            owner: catalog.declaration_with_allocation_budget(&field.owner, allocations).map_err(CanonicalImageError::Artifact)?,
+            name: field.name,
+            side: crate::metadata::stable_identity::from_stable_dispatch_side(field.side),
+        }),
+        None => consume_stable_field(field, allocations),
+    }
+}
+
+fn resolve_query_callable_authorized(
+    callable: &StableCallableRef, allocations: &mut AllocationBudget,
+    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+) -> Result<crate::identity::CallableId, CanonicalImageError> {
+    match owner_catalog {
+        Some(catalog) => catalog.callable_with_allocation_budget(callable, allocations).map_err(CanonicalImageError::Artifact),
+        None => import_stable_callable_with_allocation_budget(callable, allocations).map_err(CanonicalImageError::Artifact),
+    }
+}
+
+fn resolve_query_key_v3(key: &PortableQueryKeyV1, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<QueryKey, CanonicalImageError> {
     use PortableQueryKindV1 as K;
     use PortableQueryOwnerKeyV1 as O;
 
     Ok(match key.kind {
-        K::UnlinkedInterface => QueryKey::UnlinkedInterface(consume_stable_module(
+        K::UnlinkedInterface => QueryKey::UnlinkedInterface(consume_stable_module_authorized(
             clone_stable_module_with_budget(stable_module_owner(&key.owner)?, allocations)?,
             allocations,
+            owner_catalog,
         )?),
-        K::ResolvedImports => QueryKey::ResolvedImports(consume_stable_module(
+        K::ResolvedImports => QueryKey::ResolvedImports(consume_stable_module_authorized(
             clone_stable_module_with_budget(stable_module_owner(&key.owner)?, allocations)?,
             allocations,
+            owner_catalog,
         )?),
-        K::LinkedInterface => QueryKey::LinkedInterface(consume_stable_module(
+        K::LinkedInterface => QueryKey::LinkedInterface(consume_stable_module_authorized(
             clone_stable_module_with_budget(stable_module_owner(&key.owner)?, allocations)?,
             allocations,
+            owner_catalog,
         )?),
-        K::DeclarationShell => QueryKey::DeclarationShell(consume_stable_declaration(
+        K::DeclarationShell => QueryKey::DeclarationShell(consume_stable_declaration_authorized(
             clone_stable_declaration_with_budget(stable_declaration_owner(&key.owner)?, allocations)?,
             allocations,
+            owner_catalog,
         )?),
-        K::HierarchyEdge => QueryKey::HierarchyEdge(consume_stable_declaration(
+        K::HierarchyEdge => QueryKey::HierarchyEdge(consume_stable_declaration_authorized(
             clone_stable_declaration_with_budget(stable_declaration_owner(&key.owner)?, allocations)?,
             allocations,
+            owner_catalog,
         )?),
         K::CallableDefinition => {
             let O::Callable(callable) = &key.owner else {
                 return Err(incomplete("portable query owner is not a callable"));
             };
-            QueryKey::CallableDefinition(import_stable_callable_with_allocation_budget(callable, allocations).map_err(CanonicalImageError::Artifact)?)
+            QueryKey::CallableDefinition(resolve_query_callable_authorized(callable, allocations, owner_catalog)?)
         }
         K::CallableSignature => {
             let O::Callable(callable) = &key.owner else {
                 return Err(incomplete("portable query owner is not a callable"));
             };
-            QueryKey::CallableSignature(import_stable_callable_with_allocation_budget(callable, allocations).map_err(CanonicalImageError::Artifact)?)
+            QueryKey::CallableSignature(resolve_query_callable_authorized(callable, allocations, owner_catalog)?)
         }
         K::FieldSignature => {
             let O::Field(field) = &key.owner else {
@@ -1267,12 +1346,13 @@ fn resolve_query_key_v3(key: &PortableQueryKeyV1, allocations: &mut AllocationBu
                 side: field.side,
                 name: allocations.boxed_str(&field.name).map_err(allocation_error)?,
             };
-            QueryKey::FieldSignature(consume_stable_field(stable, allocations)?)
+            QueryKey::FieldSignature(consume_stable_field_authorized(stable, allocations, owner_catalog)?)
         }
         K::DeclarationSurface | K::TraitHeader | K::TraitSurface | K::DataDeclaration | K::EnumDeclaration | K::AssociatedSurface => {
-            let declaration = consume_stable_declaration(
+            let declaration = consume_stable_declaration_authorized(
                 clone_stable_declaration_with_budget(stable_declaration_owner(&key.owner)?, allocations)?,
                 allocations,
+                owner_catalog,
             )?;
             match key.kind {
                 K::DeclarationSurface => QueryKey::DeclarationSurface(declaration),
@@ -1288,7 +1368,7 @@ fn resolve_query_key_v3(key: &PortableQueryKeyV1, allocations: &mut AllocationBu
             let O::TypeMember(member) = &key.owner else {
                 return Err(incomplete("portable query owner is not a type member"));
             };
-            let owner = consume_stable_declaration(clone_stable_declaration_with_budget(&member.owner, allocations)?, allocations)?;
+            let owner = consume_stable_declaration_authorized(clone_stable_declaration_with_budget(&member.owner, allocations)?, allocations, owner_catalog)?;
             let selector = match member.selector.as_ref() {
                 "[]" => crate::types::type_member::TypeMemberSelector::Subscript,
                 "At" => return Err(incomplete("noncanonical stable type-member selector aliases the subscript identity")),
@@ -1298,7 +1378,7 @@ fn resolve_query_key_v3(key: &PortableQueryKeyV1, allocations: &mut AllocationBu
             QueryKey::TypeMemberDeclaration(crate::types::type_member::TypeMemberDeclarationId::new(owner, selector))
         }
         K::ModuleStaticBindingCatalog | K::ModuleStaticBindings => {
-            let module = consume_stable_module(clone_stable_module_with_budget(stable_module_owner(&key.owner)?, allocations)?, allocations)?;
+            let module = consume_stable_module_authorized(clone_stable_module_with_budget(stable_module_owner(&key.owner)?, allocations)?, allocations, owner_catalog)?;
             if key.kind == K::ModuleStaticBindingCatalog {
                 QueryKey::ModuleStaticBindingCatalog(module)
             } else {
