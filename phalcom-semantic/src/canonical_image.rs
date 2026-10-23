@@ -1158,6 +1158,11 @@ impl ExternalSemanticQueryGeneration {
         final_static_values: &StaticValueStore,
         allocations: &mut AllocationBudget,
     ) -> Result<Self, CanonicalImageError> {
+        // First bind the image to the semantic snapshot it was reconstructed
+        // with; then prove that the final composed stores preserve that exact
+        // immutable prefix. This prevents a caller from pairing an otherwise
+        // compatible query image with an unrelated semantic snapshot.
+        queries.reader(world, snapshot.store.as_ref(), snapshot.static_values.as_ref())?;
         queries.reader(world, final_store, final_static_values)?;
         Ok(Self {
             world: world.clone_with_allocation_budget(allocations)?,
