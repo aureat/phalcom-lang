@@ -63,7 +63,7 @@ pub enum SemanticProductOrigin {
 #[derive(Debug)]
 pub struct SemanticDb {
     workspace: WorkspaceId,
-    canonical: Option<Arc<crate::canonical_image::CanonicalUniverseFormalImage>>,
+    canonical: Option<crate::canonical_image::ImmutableSemanticQueryAuthority>,
     revision: SemanticRevision,
     query_states: BTreeMap<QueryKey, QueryState>,
     query_keys_by_module: BTreeMap<ModuleId, BTreeSet<QueryKey>>,
@@ -165,21 +165,39 @@ impl SemanticDb {
         }
     }
 
-    /// Creates a local database over an immutable semantic world. Consumers must
-    /// use the image's final arenas (or validated extensions), never foundation IDs.
-    /// No canonical query is copied into local state, journals, or scheduler queues.
+    /// Creates a local database over the immutable Universe image. This
+    /// compatibility constructor preserves the existing API while routing all
+    /// immutable reads through the generic authority layer.
     pub fn with_canonical_image(workspace: WorkspaceId, image: Arc<crate::canonical_image::CanonicalUniverseFormalImage>) -> Self {
         let mut db = Self::with_workspace(workspace);
-        db.canonical = Some(image);
+        db.canonical = Some(crate::canonical_image::ImmutableSemanticQueryAuthority::from_universe(image));
         db
     }
 
+    /// Creates a local database over a validated multi-artifact immutable query
+    /// catalogue. No external query is copied into local state, journals, or
+    /// scheduler queues.
+    pub fn with_external_query_catalogue(
+        workspace: WorkspaceId,
+        catalogue: Arc<crate::canonical_image::ExternalSemanticQueryCatalogue>,
+    ) -> Self {
+        let mut db = Self::with_workspace(workspace);
+        db.canonical = Some(crate::canonical_image::ImmutableSemanticQueryAuthority::from_external(catalogue));
+        db
+    }
+
+    /// Legacy Universe-image accessor. External package catalogues deliberately
+    /// return None; generic callers should use immutable_query_authority().
     pub fn canonical_image(&self) -> Option<&Arc<crate::canonical_image::CanonicalUniverseFormalImage>> {
+        self.canonical.as_ref()?.as_universe()
+    }
+
+    pub fn immutable_query_authority(&self) -> Option<&crate::canonical_image::ImmutableSemanticQueryAuthority> {
         self.canonical.as_ref()
     }
 
     fn canonical_entry(&self, key: &QueryKey) -> Option<&crate::canonical_image::CanonicalQueryEntry> {
-        self.canonical.as_ref()?.query_image().entry(key)
+        self.canonical.as_ref()?.entry(key)
     }
 
     /// Whether this exact query root is owned by the immutable canonical image.
@@ -435,8 +453,13 @@ impl SemanticDb {
         if self.query_states.contains_key(key) {
             return self.product(key).map(|_| SemanticProductOrigin::Workspace(self.workspace));
         }
-        self.canonical_entry(key)
-            .map(|_| SemanticProductOrigin::Canonical(self.canonical.as_ref().unwrap().world().clone()))
+        self.canonical_entry(key).and_then(|_| {
+            self.canonical
+                .as_ref()?
+                .world_for_query(key)
+                .cloned()
+                .map(SemanticProductOrigin::Canonical)
+        })
     }
 
     pub fn query_state(&self, key: &QueryKey) -> Option<&QueryState> {
