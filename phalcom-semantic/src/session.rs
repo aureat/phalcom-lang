@@ -185,7 +185,21 @@ fn snapshot_is_immutable_authority(db: &SemanticDb, snapshot: &Arc<SemanticSnaps
 
 fn immutable_module_static_bindings(
     db: &SemanticDb,
+    external_seed: Option<&ExternalSemanticSessionSeed>,
 ) -> crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>> {
+    // Preserve immutable ownership instead of flattening canonical rows into
+    // the mutable workspace contribution. This keeps source-free image/package
+    // bindings pointer-shared and prevents local publications from claiming
+    // immutable module identities.
+    if let Some(seed) = external_seed {
+        return crate::parent_map::ParentMap::with_parent(Arc::clone(&seed.module_static_bindings));
+    }
+    if let Some(image) = db.canonical_image() {
+        return crate::parent_map::ParentMap::with_parent(Arc::clone(&image.snapshot().module_static_bindings));
+    }
+
+    // Compatibility fallback for a generic immutable authority that was not
+    // installed through an image or composed external session seed.
     let mut bindings = crate::parent_map::ParentMap::default();
     let Some(authority) = db.immutable_query_authority() else {
         return bindings;
@@ -7872,7 +7886,7 @@ impl SemanticWorkspaceSession {
         // The first ordinary pass establishes local module binding facts. Seed
         // a second pass from those canonical facts so imported values retain
         // their exact structural type and denotation during normal checking.
-        let mut module_static_bindings = immutable_module_static_bindings(&self.db);
+        let mut module_static_bindings = immutable_module_static_bindings(&self.db, self.external_seed.as_deref());
         for (module_id, shard) in &self.semantic_structure_shards {
             let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
             let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
@@ -8411,7 +8425,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        module_static_bindings = immutable_module_static_bindings(&self.db);
+        module_static_bindings = immutable_module_static_bindings(&self.db, self.external_seed.as_deref());
         for (module_id, shard) in &self.semantic_structure_shards {
             let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
             let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
