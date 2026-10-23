@@ -1,4 +1,6 @@
 from .fiber import Future
+from universe.errors.error import Error
+from universe.result import Result
 
 class CompletionSource<T> {
   mut _future
