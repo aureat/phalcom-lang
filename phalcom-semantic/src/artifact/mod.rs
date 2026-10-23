@@ -10,6 +10,7 @@ pub mod export;
 pub mod import;
 pub mod operational;
 pub mod query;
+pub mod projection;
 pub mod roots;
 pub mod validate;
 

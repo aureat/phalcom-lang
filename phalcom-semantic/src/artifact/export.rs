@@ -457,9 +457,36 @@ pub fn register_structural_primary_roots(
     hierarchy: &MapTypeHierarchy,
     type_aliases: &TypeAliasTable,
 ) -> Result<(), ArtifactError> {
+    register_structural_primary_roots_scoped(
+        types,
+        &super::projection::ArtifactProjectionScope::whole_image(),
+        data_table,
+        enum_table,
+        declarations,
+        hierarchy,
+        type_aliases,
+    )
+}
+
+/// Registers structural primary roots for exactly the declarations and variants `scope` owns.
+///
+/// A dependency-owned declaration referenced by an owned row (a superclass, a
+/// field type) is not rooted here; it enters the closure only as structure.
+pub fn register_structural_primary_roots_scoped(
+    types: &mut TypeExportContext,
+    scope: &super::projection::ArtifactProjectionScope,
+    data_table: &DataSemanticTable,
+    enum_table: &EnumSemanticTable,
+    declarations: &DeclarationTypeTable,
+    hierarchy: &MapTypeHierarchy,
+    type_aliases: &TypeAliasTable,
+) -> Result<(), ArtifactError> {
     let lineage = types.expected_lineage();
 
     for (decl_id, info) in declarations.iter() {
+        if !scope.owns_declaration(decl_id) {
+            continue;
+        }
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::DeclarationShell,
             owner: StableOwnerRef::Declaration(to_stable_declaration(decl_id)),
@@ -480,6 +507,9 @@ pub fn register_structural_primary_roots(
     }
 
     for (decl_id, info) in type_aliases.iter() {
+        if !scope.owns_declaration(decl_id) {
+            continue;
+        }
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::HierarchyAndAlias,
             owner: StableOwnerRef::Declaration(to_stable_declaration(decl_id)),
@@ -489,6 +519,9 @@ pub fn register_structural_primary_roots(
     }
 
     for (decl_id, _) in hierarchy.iter_superclasses() {
+        if !scope.owns_declaration(decl_id) {
+            continue;
+        }
         if let Some(template) = hierarchy.supertype_template(decl_id) {
             let key = CanonicalTypeRootKey {
                 family_tag: CanonicalRootFamilyTag::HierarchyAndAlias,
@@ -500,6 +533,9 @@ pub fn register_structural_primary_roots(
     }
 
     for (decl_id, info) in data_table.data_decls.iter() {
+        if !scope.owns_declaration(decl_id) {
+            continue;
+        }
         let owner = StableOwnerRef::Declaration(to_stable_declaration(decl_id));
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::DataContract,
@@ -510,6 +546,9 @@ pub fn register_structural_primary_roots(
     }
 
     for (decl_id, info) in enum_table.enums.iter() {
+        if !scope.owns_declaration(decl_id) {
+            continue;
+        }
         let owner = StableOwnerRef::Declaration(to_stable_declaration(decl_id));
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::EnumContract,
@@ -520,6 +559,9 @@ pub fn register_structural_primary_roots(
     }
 
     for (var_id, info) in enum_table.variants.iter() {
+        if !scope.owns_variant(var_id) {
+            continue;
+        }
         let owner = StableOwnerRef::Variant(to_stable_variant(var_id));
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::VariantContract,

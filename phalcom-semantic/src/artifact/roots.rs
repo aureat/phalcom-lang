@@ -1,5 +1,6 @@
 //! Stable primary-owner roots collected before either relocation graph closes.
-use super::export::register_structural_primary_roots;
+use super::export::register_structural_primary_roots_scoped;
+use super::projection::{ArtifactProjectionScope, ArtifactSemanticProjection};
 use crate::declaration_type::{DeclaredTypeFact, DeclaredTypeState};
 use crate::metadata::stable_identity::{to_stable_callable, to_stable_declaration, to_stable_impl, to_stable_module, to_stable_variant};
 use crate::snapshot::SemanticSnapshot;
@@ -1180,15 +1181,36 @@ impl<'a> Roots<'a> {
     }
 }
 
-/// Register every reference used by the current primary projection in stable owner order.
-/// Required owner adapters extend this pass together with their wire projection.
+/// Register every reference used by the whole-image primary projection in stable owner order.
+///
+/// This is the canonical Universe convenience: it treats the entire snapshot as
+/// artifact-owned. Package artifacts compiled against dependency artifacts must
+/// use [`register_semantic_world_roots_scoped`] instead.
 pub fn register_semantic_world_roots(
     snapshot: &SemanticSnapshot,
     types: &mut TypeExportContext,
     statics: &mut StaticExportContext,
 ) -> Result<(), ArtifactError> {
-    register_structural_primary_roots(
+    let scope = ArtifactProjectionScope::whole_image();
+    register_semantic_world_roots_scoped(ArtifactSemanticProjection::new(snapshot, &scope), types, statics)
+}
+
+/// Register the roots of exactly the primary rows the projection's scope owns.
+///
+/// Rows owned by dependency artifacts contribute no root, so their products
+/// enter the transport closure only as structure referenced by owned rows.
+/// Required owner adapters extend this pass together with their wire projection,
+/// and the wire projection must select rows through the same scope.
+pub fn register_semantic_world_roots_scoped(
+    projection: ArtifactSemanticProjection<'_>,
+    types: &mut TypeExportContext,
+    statics: &mut StaticExportContext,
+) -> Result<(), ArtifactError> {
+    let snapshot = projection.snapshot();
+    let scope = projection.scope();
+    register_structural_primary_roots_scoped(
         types,
+        scope,
         &snapshot.data_semantics,
         &snapshot.enum_semantics,
         &snapshot.declarations,
@@ -1196,9 +1218,15 @@ pub fn register_semantic_world_roots(
         &snapshot.type_aliases,
     )?;
     for (id, info) in snapshot.declarations.iter() {
+        if !scope.owns_declaration(id) {
+            continue;
+        }
         Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::GenericSignature).generic(&info.generic_signature)?;
     }
     for (id, info) in snapshot.data_semantics.data_decls.iter() {
+        if !scope.owns_declaration(id) {
+            continue;
+        }
         let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::DataContract);
         r.generic(&info.generic_signature)?;
         r.static_data(&info.static_data)?;
@@ -1217,12 +1245,18 @@ pub fn register_semantic_world_roots(
         }
     }
     for (id, info) in snapshot.enum_semantics.enums.iter() {
+        if !scope.owns_declaration(id) {
+            continue;
+        }
         let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::EnumContract);
         r.generic(&info.generic_signature)?;
         r.static_data(&info.static_data)?;
         r.ty(info.default_result_type)?;
     }
     for (id, info) in snapshot.enum_semantics.variants.iter() {
+        if !scope.owns_variant(id) {
+            continue;
+        }
         let mut r = Roots::new(types, StableOwnerRef::Variant(to_stable_variant(id)), Family::VariantContract);
         for f in &info.fields {
             r.fact(&f.declared_type)?;
@@ -1253,29 +1287,44 @@ pub fn register_semantic_world_roots(
         }
     }
     for (id, sig) in snapshot.callable_signatures.iter() {
+        if !scope.owns_callable(id) {
+            continue;
+        }
         if &sig.callable != id {
             return Err(ArtifactError::LimitExceeded("callable signature table key disagrees with its owner".into()));
         }
         register_callable_signature_roots(types, sig)?;
     }
     for (id, definition) in snapshot.callable_definitions.iter() {
+        if !scope.owns_callable(id) {
+            continue;
+        }
         if id != &definition.callable {
             return Err(ArtifactError::LimitExceeded("callable definition table key disagrees with its owner".into()));
         }
         register_callable_definition_roots(types, definition)?;
     }
     for (id, analysis) in snapshot.callable_analyses.iter() {
+        if !scope.owns_callable(id) {
+            continue;
+        }
         if id != &analysis.callable {
             return Err(ArtifactError::LimitExceeded("callable analysis table key disagrees with its owner".into()));
         }
         register_callable_analysis_roots(types, analysis, &snapshot.store)?;
     }
-    for (_owner, requirements) in snapshot.enum_requirements.requirements.iter() {
+    for (owner, requirements) in snapshot.enum_requirements.requirements.iter() {
+        if !scope.owns_declaration(owner) {
+            continue;
+        }
         for requirement in requirements.iter() {
             register_callable_signature_roots(types, &requirement.signature)?;
         }
     }
     for (id, head) in snapshot.conformance_index.iter() {
+        if !scope.owns_impl(id) {
+            continue;
+        }
         let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(id)), Family::TraitAndConformance);
         r.ty(head.target_head)?;
         r.generic(&head.generic_signature)?;
@@ -1284,6 +1333,9 @@ pub fn register_semantic_world_roots(
         }
     }
     for (decl_id, surface) in snapshot.surfaces.iter() {
+        if !scope.owns_declaration(decl_id) {
+            continue;
+        }
         let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(decl_id)), Family::SurfaceAndDispatch);
         for (_, field_sig) in snapshot.field_signatures.iter_owner(decl_id) {
             r.fact(&field_sig.declared_type)?;
@@ -1296,6 +1348,9 @@ pub fn register_semantic_world_roots(
         }
     }
     for (id, surface) in snapshot.trait_surfaces.iter() {
+        if !scope.owns_declaration(id) {
+            continue;
+        }
         let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::TraitAndConformance);
         r.generic(&surface.generic_signature)?;
         for (_, member) in surface.iter() {
@@ -1326,8 +1381,11 @@ pub fn register_semantic_world_roots(
                 "conditional inherent member set target disagrees with its owner".into(),
             ));
         }
+        // Ownership follows the contributing impl, never the target: an owned impl may
+        // extend a dependency-owned declaration, and a dependency impl may share an
+        // owned target's bucket.
         let mut impl_roots = BTreeMap::new();
-        for member in &members.members {
+        for member in members.members.iter().filter(|member| scope.owns_impl(&member.impl_id)) {
             if member.impl_id != member.domain.impl_id || &member.domain.target != target {
                 return Err(ArtifactError::LimitExceeded(
                     "conditional inherent member domain disagrees with its owner".into(),
@@ -1352,7 +1410,7 @@ pub fn register_semantic_world_roots(
                 std::collections::btree_map::Entry::Occupied(_) => {}
             }
         }
-        for member in &members.members {
+        for member in members.members.iter().filter(|member| scope.owns_impl(&member.impl_id)) {
             let (_, next_ordinal) = impl_roots
                 .get_mut(&member.impl_id)
                 .ok_or_else(|| ArtifactError::LimitExceeded("conditional inherent member has no root owner".into()))?;
@@ -1367,6 +1425,9 @@ pub fn register_semantic_world_roots(
         }
     }
     for (id, product) in snapshot.type_member_declarations.iter() {
+        if !scope.owns_type_member(id) {
+            continue;
+        }
         let owner = phalcom_type_meta::identity::StableTypeMemberRef {
             owner: to_stable_declaration(&id.owner),
             selector: id.selector.name().into(),
@@ -1391,6 +1452,9 @@ pub fn register_semantic_world_roots(
     }
     let mut associated_domain_ordinal = 100u32;
     for (id, product) in snapshot.associated_static_domains.iter() {
+        if !scope.owns_associated_static_domain(id) {
+            continue;
+        }
         let owner = StableOwnerRef::Declaration(to_stable_declaration(&id.owner));
         let key = CanonicalTypeRootKey {
             family_tag: Family::TypeMemberAndDomain,
@@ -1414,6 +1478,9 @@ pub fn register_semantic_world_roots(
         }
     }
     for (domain, catalog) in snapshot.static_case_catalogs.iter() {
+        if !scope.owns_static_domain(domain) {
+            continue;
+        }
         if domain != &catalog.domain {
             return Err(ArtifactError::LimitExceeded("static-case catalog table key disagrees with its owner".into()));
         }
@@ -1441,6 +1508,9 @@ pub fn register_semantic_world_roots(
         }
     }
     for (case, signature) in snapshot.static_case_signatures.iter() {
+        if !scope.owns_static_case(case) {
+            continue;
+        }
         if case != &signature.id {
             return Err(ArtifactError::LimitExceeded("static-case signature table key disagrees with its owner".into()));
         }
@@ -1461,6 +1531,9 @@ pub fn register_semantic_world_roots(
         }
     }
     for (id, plan) in snapshot.conformance_witness_plans.iter() {
+        if !scope.owns_impl(id) {
+            continue;
+        }
         if id != &plan.impl_id {
             return Err(ArtifactError::LimitExceeded("conformance witness table key disagrees with its owner".into()));
         }
@@ -1484,11 +1557,17 @@ pub fn register_semantic_world_roots(
         }
     }
     for rule in snapshot.derived_conformance_rules.iter() {
+        if !scope.owns_impl(&rule.impl_id) {
+            continue;
+        }
         let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&rule.impl_id)), Family::TraitAndConformance);
         r.store = Some(&snapshot.store);
         r.derived_conformance_rule(rule)?;
     }
-    for (_, product) in snapshot.static_definitions.iter() {
+    for (owner, product) in snapshot.static_definitions.iter() {
+        if !scope.owns_declaration(owner) {
+            continue;
+        }
         if let Some(program) = &product.canonical_program {
             let owner = StableOwnerRef::Declaration(to_stable_declaration(&program.owner.0));
             let next_ordinal = super::operational::register_operational_template_roots(program, statics, types)?;
@@ -1528,6 +1607,9 @@ pub fn register_semantic_world_roots(
     let mut static_constants = snapshot.static_constants.iter().collect::<Vec<_>>();
     static_constants.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     for (id, product) in static_constants {
+        if !scope.owns_static_constant(id) {
+            continue;
+        }
         let authority = product
             .authority
             .as_ref()
@@ -1585,6 +1667,9 @@ pub fn register_semantic_world_roots(
     let mut module_bindings = snapshot.module_static_bindings.iter().collect::<Vec<_>>();
     module_bindings.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     for (module, index) in module_bindings {
+        if !scope.owns_module(module) {
+            continue;
+        }
         if module != index.module() {
             return Err(ArtifactError::LimitExceeded("module static-binding index key disagrees with its owner".into()));
         }
