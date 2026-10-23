@@ -297,8 +297,20 @@ impl VM {
     /// the public `None` global is the immediate absence value, never the
     /// hidden runtime behavior class.
     pub(crate) fn verify_canonical_none_global(&mut self) -> Result<(), crate::error::VmBootstrapError> {
+        let option_id = Self::canonical_universe_module_id(phalcom_native_meta::UniverseKey::Option)?;
+        let option_module = self
+            .module_registry
+            .get(&option_id)
+            .ok_or_else(|| crate::error::VmBootstrapError::Invariant(format!("canonical Option owner module {option_id} is not registered")))?
+            .object;
+        let none_symbol = self
+            .interner
+            .find("None")
+            .ok_or_else(|| crate::error::VmBootstrapError::Invariant("canonical None symbol is not interned".into()))?;
         let none_value = self
-            .universe_global(&["option", "option"], "None")
+            .heap
+            .module(option_module)
+            .get(none_symbol)
             .ok_or_else(|| crate::error::VmBootstrapError::Invariant("None global must be bound by canonical Option module".into()))?;
         if none_value != Value::none() {
             return Err(crate::error::VmBootstrapError::Invariant(
