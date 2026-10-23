@@ -1,4 +1,3 @@
-from .fiber import System
 from universe.errors.argument import ArgumentError
 from universe.time.duration import Duration
 

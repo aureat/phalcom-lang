@@ -1,4 +1,3 @@
-from universe.concurrency.fiber import System
 from universe.errors.error import Error
 
 /// Observability and execution trace sink.
