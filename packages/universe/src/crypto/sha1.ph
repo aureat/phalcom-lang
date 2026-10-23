@@ -43,13 +43,13 @@ class SHA1 {
   }
 
   @class
-  private compress(_ padded: Bytes, _ offset: Int, _ h: List<Int>) -> List<Int> {
+  private compress(_ padded: Bytes, _ offset: Int, _ h: (Int, Int, Int, Int, Int)) -> (Int, Int, Int, Int, Int) {
     let words = SHA1.schedule(padded, offset)
-    let mut a = h.at(0)
-    let mut b = h.at(1)
-    let mut c = h.at(2)
-    let mut d = h.at(3)
-    let mut e = h.at(4)
+    let mut a = h[0]
+    let mut b = h[1]
+    let mut c = h[2]
+    let mut d = h[3]
+    let mut e = h[4]
     let mut t = 0
     while t < 80 {
       let f = SHA1.roundFunction(t, b, c, d)
@@ -63,11 +63,11 @@ class SHA1 {
       t = t + 1
     }
     let result = List<Int>.new()
-    result.append((h.at(0) + a) & 0xffffffff)
-    result.append((h.at(1) + b) & 0xffffffff)
-    result.append((h.at(2) + c) & 0xffffffff)
-    result.append((h.at(3) + d) & 0xffffffff)
-    result.append((h.at(4) + e) & 0xffffffff)
+    result.append((h[0] + a) & 0xffffffff)
+    result.append((h[1] + b) & 0xffffffff)
+    result.append((h[2] + c) & 0xffffffff)
+    result.append((h[3] + d) & 0xffffffff)
+    result.append((h[4] + e) & 0xffffffff)
     result
   }
 
@@ -111,11 +111,11 @@ class SHA1 {
     }
 
     let digest = Bytes.new(20)
-    SHA1.writeWord(digest, 0, h.at(0))
-    SHA1.writeWord(digest, 4, h.at(1))
-    SHA1.writeWord(digest, 8, h.at(2))
-    SHA1.writeWord(digest, 12, h.at(3))
-    SHA1.writeWord(digest, 16, h.at(4))
+    SHA1.writeWord(digest, 0, h[0])
+    SHA1.writeWord(digest, 4, h[1])
+    SHA1.writeWord(digest, 8, h[2])
+    SHA1.writeWord(digest, 12, h[3])
+    SHA1.writeWord(digest, 16, h[4])
     digest
   }
 }
