@@ -324,12 +324,17 @@ impl StagedTeloscCompilerWire {
             // against generations already authenticated and admitted above.
             let prefix = ExternalModuleAuthoritySet::from_worlds(Arc::new(project_candidate.clone()), worlds.clone())
                 .map_err(|error| ArtifactError::from(ValidationError::ReferentialIntegrity(error)))?;
+            let upstream_witness_fingerprints = generations
+                .iter()
+                .flat_map(|generation| generation.snapshot.conformance_witness_plans.iter().map(|(id, plan)| (id.clone(), plan.fingerprint)))
+                .collect::<Vec<_>>();
             let generation = artifact.stage_package_semantic_generation_into_shared_stores(
                 &project_candidate,
                 &prefix,
                 resolver,
                 &mut receiving_types,
                 &mut receiving_static_values,
+                &upstream_witness_fingerprints,
                 limits,
                 &mut composition_budget,
             )?;
@@ -618,6 +623,7 @@ impl StagedTeloscCompilerWire {
         resolver: &dyn TrustedPackageResolver,
         receiving_types: &mut TypeStore,
         receiving_static_values: &mut StaticValueStore,
+        upstream_witness_fingerprints: &[(phalcom_semantic::identity::ImplId, phalcom_semantic::db::ProductFingerprint)],
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<StagedArtifactSemanticGeneration, TeloscStagingError> {
@@ -637,6 +643,7 @@ impl StagedTeloscCompilerWire {
                 modules.linked().universe.as_ref(),
                 &mut type_candidate,
                 &mut static_candidate,
+                upstream_witness_fingerprints,
                 limits,
                 &mut generation_budget,
             )?;

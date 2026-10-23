@@ -6603,6 +6603,7 @@ pub fn validate_and_import_semantic_world_into_type_store_with_module_world_and_
         Some(projects),
         Some(&mut candidate),
         None,
+        &[],
         limits,
         &mut allocations,
     )?;
@@ -6614,12 +6615,18 @@ pub fn validate_and_import_semantic_world_into_type_store_with_module_world_and_
 /// Imports one semantic world into caller-owned receiving type and static-value
 /// generations. Neither caller-visible store is replaced until the complete
 /// semantic import and allocation child transaction both commit.
+///
+/// `upstream_witness_fingerprints` holds the witness-plan fingerprints of
+/// impls owned by already-admitted generations (Universe and dependency
+/// packages), so this world's Exact conformance evidence may cite them.
+#[allow(clippy::too_many_arguments)]
 pub fn validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget(
     world: SemanticWorldV4,
     module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     projects: &phalcom_modules::ProjectUniverse,
     receiving_type_store: &mut TypeStore,
     receiving_static_values: &mut StaticValueStore,
+    upstream_witness_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
@@ -6633,6 +6640,7 @@ pub fn validate_and_import_semantic_world_into_shared_stores_with_module_world_a
         Some(projects),
         Some(&mut type_candidate),
         Some(&mut static_candidate),
+        upstream_witness_fingerprints,
         limits,
         &mut allocations,
     )?;
@@ -6664,7 +6672,7 @@ fn validate_and_import_semantic_world_with_optional_module_world(
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
     let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
-    let parts = validate_and_import_semantic_world_inner(world, module_world, projects, None, None, limits, &mut allocations)?;
+    let parts = validate_and_import_semantic_world_inner(world, module_world, projects, None, None, &[], limits, &mut allocations)?;
     transaction.commit_child(allocations).map_err(allocation_error)?;
     Ok(parts)
 }
@@ -6676,12 +6684,14 @@ fn allocation_error(error: AllocationError) -> ArtifactError {
     ArtifactError::Allocation(error)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_and_import_semantic_world_inner(
     world: SemanticWorldV4,
     module_world: Option<&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5>,
     projects: Option<&phalcom_modules::ProjectUniverse>,
     mut receiving_type_store: Option<&mut TypeStore>,
     mut receiving_static_values: Option<&mut StaticValueStore>,
+    upstream_witness_fingerprints: &[(crate::identity::ImplId, crate::db::ProductFingerprint)],
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
@@ -7269,7 +7279,7 @@ fn validate_and_import_semantic_world_inner(
         .vector::<(crate::identity::ImplId, Arc<crate::impls::ConformanceWitnessPlan>)>(world.witness_plans.len())
         .map_err(allocation_error)?;
     let mut source_plan_fingerprints = allocations
-        .vector::<(crate::identity::ImplId, crate::db::ProductFingerprint)>(world.witness_plans.len())
+        .vector::<(crate::identity::ImplId, crate::db::ProductFingerprint)>(world.witness_plans.len() + upstream_witness_fingerprints.len())
         .map_err(allocation_error)?;
     #[cfg(feature = "allocation-diagnostics")]
     record_callable_import_allocation_diagnostic_stage(
@@ -7430,6 +7440,14 @@ fn validate_and_import_semantic_world_inner(
             &mut witness_diagnostic_previous_observed,
             &mut witness_diagnostic_previous_ledger,
         );
+    }
+
+    // Evidence may cite impls of earlier generations; their plans live in
+    // those generations, so only their fingerprints are carried here.
+    for (impl_id, fingerprint) in upstream_witness_fingerprints {
+        if !source_plan_fingerprints.iter().any(|(local, _)| local == impl_id) {
+            source_plan_fingerprints.push((impl_id.clone_with_allocation_budget(allocations).map_err(allocation_error)?, *fingerprint));
+        }
     }
 
     let witness_plans_map =
