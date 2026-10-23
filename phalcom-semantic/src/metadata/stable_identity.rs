@@ -2,7 +2,7 @@
 
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, FieldId};
 use phalcom_common::selector::Selector;
-use phalcom_modules::{ModuleId, ProjectIdentity, ProjectUniverse};
+use phalcom_modules::{ModuleId, ProjectIdentity, ProjectUniverse, ResolvedProjectId};
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef, StableImplRef, StableModuleRef, StableProjectRef,
@@ -13,6 +13,7 @@ use phalcom_type_meta::identity::{
 pub struct StableIdentityContext<'a> {
     pub projects: &'a ProjectUniverse,
     query_fingerprint: bool,
+    publishing: Option<(ResolvedProjectId, &'a StableProjectRef)>,
 }
 
 impl<'a> StableIdentityContext<'a> {
@@ -20,15 +21,34 @@ impl<'a> StableIdentityContext<'a> {
         Self {
             projects,
             query_fingerprint: false,
+            publishing: None,
         }
     }
 
     /// Uses logical project identity for in-process query fingerprints. Unlike
     /// artifact identities, it does not change for an unrelated source edit.
     pub fn for_query(projects: &'a ProjectUniverse) -> Self {
+        Self::new(projects).for_query_fingerprints()
+    }
+
+    /// Exports `project` as `identity` while publishing that project's artifact.
+    ///
+    /// The override applies to artifact and query-fingerprint identities and
+    /// takes precedence over resolver receipts and source provenance.
+    pub fn publishing(projects: &'a ProjectUniverse, project: ResolvedProjectId, identity: &'a StableProjectRef) -> Self {
         Self {
             projects,
+            query_fingerprint: false,
+            publishing: Some((project, identity)),
+        }
+    }
+
+    /// Enables logical-source query fingerprints while preserving a publishing override.
+    pub fn for_query_fingerprints(&self) -> Self {
+        Self {
+            projects: self.projects,
             query_fingerprint: true,
+            publishing: self.publishing,
         }
     }
 }
@@ -49,6 +69,11 @@ pub fn to_stable_project(proj: &ProjectIdentity) -> StableProjectRef {
 pub fn to_stable_project_with_context(proj: &ProjectIdentity, context: &StableIdentityContext<'_>) -> StableProjectRef {
     match proj {
         ProjectIdentity::Resolved(id) => {
+            if let Some((publishing_project, identity)) = context.publishing {
+                if *id == publishing_project {
+                    return identity.clone();
+                }
+            }
             // The unique resolver-authorized package identity, including
             // fingerprint, takes precedence over mutable source-manifest
             // provenance for imported immutable project owners.
@@ -493,6 +518,63 @@ mod trusted_artifact_project_identity_tests {
         projects.register_package_authority_receipt(&stable, receipt, Some(digest)).unwrap();
         for context in [StableIdentityContext::new(&projects), StableIdentityContext::for_query(&projects)] {
             assert_eq!(to_stable_project_with_context(&native, &context), stable);
+        }
+    }
+
+    #[test]
+    fn publishing_identity_overrides_only_its_project_in_both_fingerprint_modes() {
+        fn add_project(projects: &mut ProjectUniverse, root: &std::path::Path, name: &str) -> ResolvedProjectId {
+            std::fs::create_dir_all(root.join("src")).unwrap();
+            std::fs::write(
+                root.join("project.toml"),
+                format!("[project]\nname = \"{name}\"\nnamespace = \"{name}\"\nversion = \"1.0.0\"\n"),
+            )
+            .unwrap();
+            std::fs::write(root.join("src/package.ph"), "").unwrap();
+            projects.load_root(root.join("project.toml")).unwrap()
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let mut projects = ProjectUniverse::new();
+        let publishing_project = add_project(&mut projects, &temp.path().join("publishing"), "publishing");
+        let receipt_project = add_project(&mut projects, &temp.path().join("receipt"), "receipt");
+        let source_project = add_project(&mut projects, &temp.path().join("source"), "source");
+
+        let publishing_identity = StableProjectRef::Package {
+            package: "publishing".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([7; 16]),
+        };
+        let receipt_identity = StableProjectRef::Package {
+            package: "receipt".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([8; 16]),
+        };
+        let digest = ArtifactDigest([9; 32]);
+        let receipt = ValidatedPackageAuthorityReceipt::from_trusted_resolver(receipt_identity.clone(), digest, receipt_project).unwrap();
+        projects.register_package_authority_receipt(&receipt_identity, receipt, Some(digest)).unwrap();
+
+        let context = StableIdentityContext::publishing(&projects, publishing_project, &publishing_identity);
+        for context in [&context, &context.for_query_fingerprints()] {
+            assert_eq!(
+                to_stable_project_with_context(&ProjectIdentity::Resolved(publishing_project), context),
+                publishing_identity
+            );
+            assert_eq!(
+                to_stable_project_with_context(&ProjectIdentity::Resolved(receipt_project), context),
+                receipt_identity
+            );
+            assert!(matches!(
+                to_stable_project_with_context(&ProjectIdentity::Resolved(source_project), context),
+                StableProjectRef::SourceArtifact { .. }
+            ));
+            assert_eq!(
+                to_stable_project_with_context(&ProjectIdentity::Universe, context),
+                StableProjectRef::Builtin {
+                    namespace: "universe".into(),
+                    version: "0.1.0".into(),
+                }
+            );
         }
     }
 }
