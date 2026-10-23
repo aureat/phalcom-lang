@@ -217,9 +217,20 @@ pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl Int
         EvidenceStatus::Assumed => TypeKnowledge::assumed(joined_type, EvidenceOrigin::Flow),
     };
     if let TypeKnowledge::Known(evidence) = &mut joined {
+        // Flow joins are fixed-point operations, so provenance accumulation must
+        // be idempotent. Re-appending the same source facts on every loop probe
+        // makes otherwise bounded loop analysis grow provenance geometrically.
         for input in known {
-            evidence.provenance.ranges.extend(input.provenance.ranges);
-            evidence.provenance.descriptions.extend(input.provenance.descriptions);
+            for range in input.provenance.ranges {
+                if !evidence.provenance.ranges.contains(&range) {
+                    evidence.provenance.ranges.push(range);
+                }
+            }
+            for description in input.provenance.descriptions {
+                if !evidence.provenance.descriptions.contains(&description) {
+                    evidence.provenance.descriptions.push(description);
+                }
+            }
         }
     }
     joined
@@ -569,6 +580,29 @@ mod required_composition_tests {
             panic!("expected known required composition");
         };
         assert_eq!(evidence.provenance().ranges.len(), 2);
+    }
+
+    #[test]
+    fn flow_join_provenance_is_idempotent_across_repeated_fixpoint_joins() {
+        let mut store = TypeStore::new();
+        let int_ty = nominal(&mut store, "Int");
+        let range = SourceRange::default();
+        let mut seed = TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax).with_range(range);
+        let TypeKnowledge::Known(seed_evidence) = &mut seed else {
+            unreachable!("established evidence is known");
+        };
+        seed_evidence.provenance.descriptions.push("loop seed".to_owned());
+
+        let mut joined = seed.clone();
+        for _ in 0..64 {
+            joined = join_type_knowledge(&mut store, [joined, seed.clone()]);
+        }
+
+        let TypeKnowledge::Known(evidence) = joined else {
+            panic!("repeated known joins must remain known");
+        };
+        assert_eq!(evidence.provenance().ranges, &[range]);
+        assert_eq!(evidence.provenance().descriptions, ["loop seed"]);
     }
 
     #[test]
