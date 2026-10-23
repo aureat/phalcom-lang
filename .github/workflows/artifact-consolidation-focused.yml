@@ -8,6 +8,8 @@ on:
       - "phalcom-semantic/**"
       - "phalcom-compiler-artifact/**"
       - "phalcom-modules/**"
+      - "phalcom-core/**"
+      - "packages/universe/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/artifact-consolidation-focused.yml"
@@ -75,3 +77,43 @@ jobs:
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
           test -p phalcom-compiler-artifact --test round_trip_test
+
+
+  universe-cli-smoke:
+    name: Bounded migrated-Universe CLI smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Build phalcom CLI
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          build -p phalcom-core --bin phalcom
+      - name: Run migrated Universe under hard memory and wall-clock bounds
+        shell: bash
+        run: |
+          cat > /tmp/phalcom-universe-smoke.ph <<'EOF'
+          let r = Some(3).map(|x| x + 1)
+          print(r)
+          EOF
+
+          # The historical regression rose from baseline (~1.8 GiB) to >5 GiB.
+          # Cap address space before launching the CLI so a recurrence fails closed.
+          ulimit -v 4194304
+          set +e
+          /usr/bin/time -v /usr/bin/timeout --kill-after=5s 300s \
+            target/debug/phalcom /tmp/phalcom-universe-smoke.ph \
+            > /tmp/phalcom-universe-smoke.stdout \
+            2> /tmp/phalcom-universe-smoke.stderr
+          status=$?
+          set -e
+
+          cat /tmp/phalcom-universe-smoke.stderr
+          test "$status" -eq 70
+          grep -F "undefined variable 'print'" /tmp/phalcom-universe-smoke.stderr
