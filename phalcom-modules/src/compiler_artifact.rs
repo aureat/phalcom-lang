@@ -14,6 +14,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::digest::ArtifactDigest;
 use phalcom_compiler_artifact::identity::TeloscPackageIdentity;
 use phalcom_compiler_artifact::module_world::*;
+use phalcom_compiler_artifact::module_world_v5::ModuleWorldV5;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableModuleRef, StableProjectRef};
@@ -28,7 +29,7 @@ use std::sync::Arc;
 /// validated artifact bytes. The input graph is never mutated.
 pub fn stage_artifact_project_authorities(
     projects: &ProjectUniverse,
-    module_world: &ModuleWorldV2,
+    module_world: &ModuleWorldV5,
     package_identity: &TeloscPackageIdentity,
     artifact_digest: ArtifactDigest,
     resolver: &dyn crate::TrustedPackageResolver,
@@ -899,7 +900,7 @@ fn availability_producer_out(producer: RuntimeRequirementProducer) -> Availabili
 }
 
 /// Loads completed canonical products directly, with no source parsing or linking.
-pub fn load_module_world(wire: &ModuleWorldV2, limits: &ValidationLimits) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+pub fn load_module_world(wire: &ModuleWorldV5, limits: &ValidationLimits) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
     let budget_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = AllocationBudget::new(budget_limit);
     load_module_world_with_allocation_budget(wire, limits, &mut allocations)
@@ -907,10 +908,11 @@ pub fn load_module_world(wire: &ModuleWorldV2, limits: &ValidationLimits) -> Res
 
 /// Loads module authority using the caller's cumulative load transaction.
 pub fn load_module_world_with_allocation_budget(
-    wire: &ModuleWorldV2,
+    wire: &ModuleWorldV5,
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
 ) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    let wire = &lower_closed_world(wire)?;
     if wire.portable_topology_fingerprint()? != wire.topology_fingerprint {
         return Err(invalid("portable module topology fingerprint mismatch"));
     }
@@ -925,11 +927,12 @@ pub fn load_module_world_with_allocation_budget(
 
 /// Loads module authority while retaining the validated caller-owned project catalog.
 pub fn load_module_world_with_project_catalog_and_allocation_budget(
-    wire: &ModuleWorldV2,
+    wire: &ModuleWorldV5,
     limits: &ValidationLimits,
     transaction: &mut AllocationBudget,
     projects: Arc<ProjectUniverse>,
 ) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    let wire = &lower_closed_world(wire)?;
     // The caller-owned project catalog does not weaken the wire integrity
     // contract enforced by the self-contained module-world import path.
     if wire.portable_topology_fingerprint()? != wire.topology_fingerprint {
@@ -940,6 +943,16 @@ pub fn load_module_world_with_project_catalog_and_allocation_budget(
     let world = load_module_world_inner(wire, limits, &mut allocations, projects)?;
     transaction.commit_child(allocations).map_err(allocation_error)?;
     Ok(world)
+}
+
+/// Lowers a module world to the closed schema-2 form this loader reads.
+///
+/// External module references are not yet resolved by this loader (rule
+/// `MW5-M2`); they are rejected with a typed error instead of being dropped.
+fn lower_closed_world(wire: &ModuleWorldV5) -> Result<ModuleWorldV2, ArtifactError> {
+    wire.try_into_v4()
+        .map(|world| world.previous.world)
+        .ok_or_else(|| invalid("external module references are not supported by the module-world loader"))
 }
 
 fn allocation_error(error: AllocationError) -> ArtifactError {
@@ -1551,7 +1564,7 @@ impl CanonicalExternalModuleWorld {
         project_module_world(self, limits)?.encode()
     }
     pub fn decode_artifact(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
-        load_module_world(&ModuleWorldV2::decode(bytes, limits)?, limits)
+        load_module_world(&ModuleWorldV5::from(ModuleWorldV2::decode(bytes, limits)?), limits)
     }
 }
 
@@ -1632,7 +1645,7 @@ mod allocation_materialization_tests {
 
     fn assert_referential_rejection(world: &ModuleWorldV2, expected: &str) {
         assert!(matches!(
-            load_module_world(world, &ValidationLimits::default()),
+            load_module_world(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(world.clone()), &ValidationLimits::default()),
             Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(message))) if message == expected
         ));
     }
@@ -1815,7 +1828,7 @@ mod package_entry_authority_tests {
         });
         let header = TeloscPackageIdentity::Package { package: "forged".into(), version: "1.0.0".into() };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
+            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
         ).unwrap_err();
         assert!(error.to_string().contains("does not own its root entry"), "{error}");
     }
@@ -1837,7 +1850,7 @@ mod package_entry_authority_tests {
         wire.modules.push(foreign);
         let header = TeloscPackageIdentity::Package { package: "actual".into(), version: "1.0.0".into() };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
+            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([3; 32]), &NoPackageReceipts,
         ).unwrap_err();
         assert!(error.to_string().contains("embeds a foreign module owner"), "{error}");
     }
@@ -1850,7 +1863,7 @@ mod package_entry_authority_tests {
         });
         let header = TeloscPackageIdentity::Package { package: "ordinary".into(), version: "1.0.0".into() };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([4; 32]), &NoPackageReceipts,
+            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([4; 32]), &NoPackageReceipts,
         ).unwrap_err();
         assert!(error.to_string().contains("does not own its root entry"), "{error}");
     }
@@ -1864,7 +1877,7 @@ mod package_entry_authority_tests {
         wire.entry = ArtifactModuleId(1);
         let header = TeloscPackageIdentity::Builtin { namespace: "universe".into(), version: "0.1.0".into() };
         let error = stage_artifact_project_authorities(
-            &ProjectUniverse::new(), &wire, &header, ArtifactDigest([5; 32]), &NoPackageReceipts,
+            &ProjectUniverse::new(), &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(wire.clone()), &header, ArtifactDigest([5; 32]), &NoPackageReceipts,
         ).unwrap_err();
         assert!(error.to_string().contains("entry module is absent"), "{error}");
     }

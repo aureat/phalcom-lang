@@ -38,7 +38,7 @@ impl TrustedPackageResolver for TestResolver {
     }
 }
 
-fn package_module_world(package: StableProjectRef) -> ModuleWorldV2 {
+fn package_module_world(package: StableProjectRef) -> phalcom_compiler_artifact::module_world_v5::ModuleWorldV5 {
     let mut world = ModuleWorldV2 {
         entry: ArtifactModuleId(0),
         initialization_order: Vec::new(),
@@ -48,7 +48,7 @@ fn package_module_world(package: StableProjectRef) -> ModuleWorldV2 {
         topology_fingerprint: 0,
     };
     world.refresh_portable_topology_fingerprint().unwrap();
-    world
+    world.into()
 }
 
 #[test]
