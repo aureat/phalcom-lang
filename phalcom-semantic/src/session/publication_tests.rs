@@ -1,5 +1,5 @@
 use super::{
-    SemanticPublicationFailpoint, SemanticUpdateFailure, SemanticWorkspaceSession, extend_canonical_trait_resolver_authority,
+    SemanticPublicationFailpoint, SemanticUpdateFailure, SemanticWorkspaceSession, extend_immutable_trait_resolver_authority,
     retire_blocked_declaration_shell_queries,
 };
 use crate::db::{
@@ -275,7 +275,7 @@ fn image_backed_canonical_trait_resolution_authority_is_seeded_without_source_sy
     let session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(733), image.clone());
     let mut known_declarations = HashSet::new();
     let mut associated_types = BTreeMap::new();
-    extend_canonical_trait_resolver_authority(session.db(), &mut known_declarations, &mut associated_types);
+    extend_immutable_trait_resolver_authority(session.db(), &mut known_declarations, &mut associated_types);
 
     let iterator = image
         .snapshot()

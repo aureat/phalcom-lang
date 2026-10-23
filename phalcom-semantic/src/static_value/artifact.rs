@@ -1392,7 +1392,7 @@ mod shared_static_store_tests {
             data_values: vec![StaticDataValueV1 {
                 owner: missing.clone(),
                 constructor_owner: missing,
-                result_type: ArtifactTypeId(0),
+                result_type: phalcom_compiler_artifact::semantic::type_store::ArtifactTypeId(0),
                 components: vec![],
             }],
             variant_values: vec![],

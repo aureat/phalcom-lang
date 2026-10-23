@@ -3528,7 +3528,7 @@ mod artifact_owner_catalog_regressions {
         let artifact_type = graph
             .types
             .iter()
-            .position(|entry| matches!(&entry.form, TypeV1::Nominal { declaration: owner } if owner.path.as_ref() == ["SharedReceiver"]))
+            .position(|entry| matches!(&entry.form, TypeV1::Nominal { declaration: owner } if owner.path.len() == 1 && &*owner.path[0] == "SharedReceiver"))
             .map(|index| ArtifactTypeId(index as u32))
             .unwrap();
 
