@@ -138,6 +138,73 @@ pub enum Commands {
 
     /// Print version
     Version,
+
+    /// Build or run precompiled `.telosc` artifacts
+    #[command(subcommand)]
+    Artifact(ArtifactCommand),
+}
+
+/// Artifact pipeline: `universe.telosc` once, package artifacts over it, then
+/// source-free execution of a package on a VM bootstrapped from Universe.
+#[derive(Subcommand)]
+pub enum ArtifactCommand {
+    /// Compile the canonical Universe into a full compiler + executable artifact
+    Universe {
+        /// Output path for `universe.telosc`
+        #[arg(short, long, value_name = "path")]
+        output: PathBuf,
+    },
+    /// Compile a package project into a full compiler + executable artifact
+    Package {
+        /// Package project directory (containing `project.toml`)
+        #[arg(value_name = "project")]
+        project: PathBuf,
+        /// Precompiled Universe artifact to compile against
+        #[arg(long, value_name = "path")]
+        universe: PathBuf,
+        /// Output path for the package `.telosc`
+        #[arg(short, long, value_name = "path")]
+        output: PathBuf,
+    },
+    /// Load a package artifact over Universe and run its initializers
+    Run {
+        /// Package `.telosc`
+        #[arg(value_name = "package")]
+        package: PathBuf,
+        /// Precompiled Universe artifact providing the VM
+        #[arg(long, value_name = "path")]
+        universe: PathBuf,
+    },
+}
+
+/// Executes one [`ArtifactCommand`].
+pub fn cmd_artifact(command: ArtifactCommand) -> Result<()> {
+    use phalcom_compiler_artifact::limits::ValidationLimits;
+    use phalcom_core::modules::canonical_artifact::{build_full_universe_telosc, load_universe_telosc, write_full_universe_telosc};
+    use phalcom_core::modules::{build_full_package_telosc, load_package_telosc, write_full_package_telosc};
+
+    let limits = ValidationLimits::default();
+    match command {
+        ArtifactCommand::Universe { output } => {
+            let canonical = phalcom_core::modules::canonical_universe_program().map_err(|error| anyhow::anyhow!("{error}"))?;
+            let built = build_full_universe_telosc(canonical, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
+            write_full_universe_telosc(&output, &built).map_err(|error| anyhow::anyhow!("{error}"))?;
+            eprintln!("wrote {} ({} bytes)", output.display(), built.bytes.len());
+        }
+        ArtifactCommand::Package { project, universe, output } => {
+            let loaded = load_universe_telosc(&universe, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
+            let built = build_full_package_telosc(&project, &loaded, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
+            write_full_package_telosc(&output, &loaded, &built).map_err(|error| anyhow::anyhow!("{error}"))?;
+            eprintln!("wrote {} ({} bytes)", output.display(), built.bytes.len());
+        }
+        ArtifactCommand::Run { package, universe } => {
+            let loaded = load_universe_telosc(&universe, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
+            let package = load_package_telosc(&package, &loaded, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
+            let mut vm = loaded.new_vm().map_err(|error| anyhow::anyhow!("{error}"))?;
+            package.install_into(&mut vm).map_err(|error| anyhow::anyhow!("{error}"))?;
+        }
+    }
+    Ok(())
 }
 
 /// Tokenize phalcom code

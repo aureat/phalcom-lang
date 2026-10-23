@@ -3,7 +3,7 @@
 pub mod cli;
 pub mod disasm;
 
-use crate::cli::{Cli, Commands, cmd_check, cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version};
+use crate::cli::{Cli, Commands, cmd_artifact, cmd_check, cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version};
 use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::filter::Targets;
@@ -44,6 +44,7 @@ fn main() -> Result<()> {
         Some(Commands::Disasm(args)) => cmd_disasm(args),
         Some(Commands::Check(args)) => cmd_check(args, diagnostic_detail, render_config),
         Some(Commands::Version) => cmd_version(),
+        Some(Commands::Artifact(command)) => cmd_artifact(command),
     };
 
     // Dumped after the command, including on the error path: a program that
