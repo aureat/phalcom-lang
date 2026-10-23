@@ -162,6 +162,10 @@ pub enum ArtifactCommand {
         /// Precompiled Universe artifact to compile against
         #[arg(long, value_name = "path")]
         universe: PathBuf,
+        /// Precompiled dependency package artifacts; a `project.toml`
+        /// dependency binds to the artifact of the same package name
+        #[arg(long = "dep", value_name = "path")]
+        dependencies: Vec<PathBuf>,
         /// Output path for the package `.telosc`
         #[arg(short, long, value_name = "path")]
         output: PathBuf,
@@ -174,6 +178,10 @@ pub enum ArtifactCommand {
         /// Precompiled Universe artifact providing the VM
         #[arg(long, value_name = "path")]
         universe: PathBuf,
+        /// Dependency package artifacts the package was compiled against,
+        /// installed before it in dependency order
+        #[arg(long = "dep", value_name = "path")]
+        dependencies: Vec<PathBuf>,
     },
 }
 
@@ -191,15 +199,16 @@ pub fn cmd_artifact(command: ArtifactCommand) -> Result<()> {
             write_full_universe_telosc(&output, &built).map_err(|error| anyhow::anyhow!("{error}"))?;
             eprintln!("wrote {} ({} bytes)", output.display(), built.bytes.len());
         }
-        ArtifactCommand::Package { project, universe, output } => {
+        ArtifactCommand::Package { project, universe, dependencies, output } => {
             let loaded = load_universe_telosc(&universe, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
-            let built = build_full_package_telosc(&project, &loaded, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
-            write_full_package_telosc(&output, &loaded, &built).map_err(|error| anyhow::anyhow!("{error}"))?;
+            let dependencies = dependencies.iter().map(std::fs::read).collect::<Result<Vec<_>, _>>()?;
+            let built = build_full_package_telosc(&project, &loaded, &dependencies, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
+            write_full_package_telosc(&output, &loaded, &dependencies, &built).map_err(|error| anyhow::anyhow!("{error}"))?;
             eprintln!("wrote {} ({} bytes)", output.display(), built.bytes.len());
         }
-        ArtifactCommand::Run { package, universe } => {
+        ArtifactCommand::Run { package, universe, dependencies } => {
             let loaded = load_universe_telosc(&universe, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
-            let package = load_package_telosc(&package, &loaded, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
+            let package = load_package_telosc(&package, &loaded, &dependencies, &limits).map_err(|error| anyhow::anyhow!("{error}"))?;
             let mut vm = loaded.new_vm().map_err(|error| anyhow::anyhow!("{error}"))?;
             package.install_into(&mut vm).map_err(|error| anyhow::anyhow!("{error}"))?;
         }

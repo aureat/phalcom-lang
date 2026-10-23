@@ -441,28 +441,28 @@ impl ExecutableImageV1 {
     }
 
     /// Resolves every upstream reference of this package image against the
-    /// `prefix` image it is composed over.
+    /// `prefixes` it is composed over (Universe, then dependency packages).
     ///
     /// Structural validation admits module and class references owned by
     /// projects this image does not carry. Composition closes that gap: each
-    /// such module must be a module row of `prefix`, and each such class must
-    /// be a class row or primordial role of `prefix`.
+    /// such module must be a module row of some prefix image, and each such
+    /// class must be a class row or primordial role of some prefix image.
     ///
     /// # Errors
     ///
-    /// Returns [`ArtifactError`] naming the first upstream reference that
-    /// `prefix` does not provide.
-    pub fn validate_upstream_over(&self, prefix: &Self) -> Result<(), ArtifactError> {
+    /// Returns [`ArtifactError`] naming the first upstream reference that no
+    /// prefix image provides.
+    pub fn validate_upstream_over(&self, prefixes: &[&Self]) -> Result<(), ArtifactError> {
         use super::constant::StableClassRefV1;
         use phalcom_type_meta::identity::StableModuleRef;
         let module = |identity: &StableModuleRef| -> Result<(), ArtifactError> {
-            if self.is_upstream(identity) && prefix.module(identity).is_none() {
+            if self.is_upstream(identity) && !prefixes.iter().any(|prefix| prefix.module(identity).is_some()) {
                 return Err(invalid(format!("upstream module {identity:?} is absent from the prefix image")));
             }
             Ok(())
         };
         let class = |identity: &StableClassRefV1| -> Result<(), ArtifactError> {
-            if self.is_upstream(&identity.declaration.module) && !prefix.has_local_class(identity) {
+            if self.is_upstream(&identity.declaration.module) && !prefixes.iter().any(|prefix| prefix.has_local_class(identity)) {
                 return Err(invalid(format!("upstream class {identity:?} is absent from the prefix image")));
             }
             Ok(())
