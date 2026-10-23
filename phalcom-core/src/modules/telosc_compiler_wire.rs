@@ -287,8 +287,13 @@ impl StagedTeloscCompilerWire {
                 .ok_or_else(|| ArtifactError::from(ValidationError::ReferentialIntegrity(
                     "package artifact dependency plan selected an invalid or repeated slot".into(),
                 )))?;
+            // Prefix admission: this artifact may resolve external owners only
+            // against generations already authenticated and admitted above.
+            let prefix = ExternalModuleAuthoritySet::from_worlds(Arc::new(project_candidate.clone()), worlds.clone())
+                .map_err(|error| ArtifactError::from(ValidationError::ReferentialIntegrity(error)))?;
             let generation = artifact.stage_package_semantic_generation_into_shared_stores(
                 &project_candidate,
+                &prefix,
                 resolver,
                 &mut receiving_types,
                 &mut receiving_static_values,
@@ -447,7 +452,7 @@ impl StagedTeloscCompilerWire {
         let mut generation_budget = allocations.child(allocations.remaining());
         // Validate package receipts, foreign-module exclusion and exact native
         // project bindings before reconstructing semantic owners.
-        let module_products = self.stage_package_modules(projects, resolver, limits, &mut generation_budget)?;
+        let module_products = self.stage_package_modules(projects, None, resolver, limits, &mut generation_budget)?;
         let modules = generation_budget.arc(module_products).map_err(ArtifactError::Allocation)?;
         let parts = validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
             self.semantic_world,
@@ -519,7 +524,7 @@ impl StagedTeloscCompilerWire {
 
         let mut generation_budget = allocations.child(allocations.remaining());
         let mut type_candidate = receiving_types.clone();
-        let module_products = self.stage_package_modules(projects, resolver, limits, &mut generation_budget)?;
+        let module_products = self.stage_package_modules(projects, None, resolver, limits, &mut generation_budget)?;
         let modules = generation_budget.arc(module_products).map_err(ArtifactError::Allocation)?;
         let parts =
             validate_and_import_semantic_world_into_type_store_with_module_world_and_project_universe_and_allocation_budget(
@@ -576,6 +581,7 @@ impl StagedTeloscCompilerWire {
     pub(crate) fn stage_package_semantic_generation_into_shared_stores(
         self,
         projects: &ProjectUniverse,
+        prefix: &dyn phalcom_modules::ExternalModuleAuthority,
         resolver: &dyn TrustedPackageResolver,
         receiving_types: &mut TypeStore,
         receiving_static_values: &mut StaticValueStore,
@@ -592,7 +598,7 @@ impl StagedTeloscCompilerWire {
         let mut generation_budget = allocations.child(allocations.remaining());
         let mut type_candidate = receiving_types.clone();
         let mut static_candidate = receiving_static_values.clone();
-        let module_products = self.stage_package_modules(projects, resolver, limits, &mut generation_budget)?;
+        let module_products = self.stage_package_modules(projects, Some(prefix), resolver, limits, &mut generation_budget)?;
         let modules = generation_budget.arc(module_products).map_err(ArtifactError::Allocation)?;
         let parts =
             validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget(
@@ -652,9 +658,13 @@ impl StagedTeloscCompilerWire {
     /// This cannot be published as compiler authority on its own: the semantic
     /// wire products still require validation/relocation into the composed
     /// external semantic base. The caller owns the publication barrier.
+    ///
+    /// With `prefix`, external module references resolve against that
+    /// admitted authority; without it the world must be closed.
     pub(crate) fn stage_package_modules(
         &self,
         projects: &ProjectUniverse,
+        prefix: Option<&dyn phalcom_modules::ExternalModuleAuthority>,
         resolver: &dyn TrustedPackageResolver,
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
@@ -673,9 +683,14 @@ impl StagedTeloscCompilerWire {
             self.header.artifact_digest,
             resolver,
         )?;
-        let modules = phalcom_modules::compiler_artifact::load_module_world_with_project_catalog_and_allocation_budget(
-            portable, limits, &mut module_budget, candidate,
-        )?;
+        let modules = match prefix {
+            Some(prefix) => phalcom_modules::compiler_artifact::load_module_world_with_prefix_authority(
+                portable, limits, &mut module_budget, candidate, prefix,
+            )?,
+            None => phalcom_modules::compiler_artifact::load_module_world_with_project_catalog_and_allocation_budget(
+                portable, limits, &mut module_budget, candidate,
+            )?,
+        };
         allocations.commit_child(module_budget).map_err(ArtifactError::Allocation)?;
         Ok(modules)
     }

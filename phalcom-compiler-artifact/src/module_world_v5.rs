@@ -66,6 +66,15 @@ impl ModuleRefV1 {
         }
     }
 
+    /// Maps this reference into an extended reference space whose external
+    /// rows start at `base`; `None` rejects external references.
+    pub fn relocated(self, base: Option<u32>) -> Option<ArtifactModuleId> {
+        match self {
+            Self::Local { module } => Some(module),
+            Self::External { module } => base.and_then(|base| base.checked_add(module.0)).map(ArtifactModuleId),
+        }
+    }
+
     /// Returns the external table index, if this reference is external.
     pub fn external(self) -> Option<ExternalModuleIndex> {
         match self {
@@ -353,11 +362,11 @@ fn lift_target(target: &TargetV1) -> TargetV2 {
     }
 }
 
-fn lower_target(target: &TargetV2) -> Option<TargetV1> {
+fn lower_target(target: &TargetV2, base: Option<u32>) -> Option<TargetV1> {
     Some(match target {
-        TargetV2::Module { module } => TargetV1::Module { module: module.local()? },
+        TargetV2::Module { module } => TargetV1::Module { module: module.relocated(base)? },
         TargetV2::Binding { module, name } => TargetV1::Binding {
-            module: module.local()?,
+            module: module.relocated(base)?,
             name: name.clone(),
         },
     })
@@ -373,11 +382,11 @@ fn lift_node(node: &SemanticNodeV1) -> SemanticNodeV2 {
     }
 }
 
-fn lower_node(node: &SemanticNodeV2) -> Option<SemanticNodeV1> {
+fn lower_node(node: &SemanticNodeV2, base: Option<u32>) -> Option<SemanticNodeV1> {
     Some(match node {
-        SemanticNodeV2::Module { module } => SemanticNodeV1::Module { module: module.local()? },
+        SemanticNodeV2::Module { module } => SemanticNodeV1::Module { module: module.relocated(base)? },
         SemanticNodeV2::Declaration { module, name } => SemanticNodeV1::Declaration {
-            module: module.local()?,
+            module: module.relocated(base)?,
             name: name.clone(),
         },
     })
@@ -397,7 +406,7 @@ fn lift_unlinked(target: &crate::module_world::UnlinkedTargetV1) -> UnlinkedTarg
     }
 }
 
-fn lower_unlinked(target: &UnlinkedTargetV2) -> Option<UnlinkedTargetV1> {
+fn lower_unlinked(target: &UnlinkedTargetV2, base: Option<u32>) -> Option<UnlinkedTargetV1> {
     Some(match target {
         UnlinkedTargetV2::Local { name } => UnlinkedTargetV1::Local { name: name.clone() },
         UnlinkedTargetV2::ReExport { path, remote } => UnlinkedTargetV1::ReExport {
@@ -405,7 +414,7 @@ fn lower_unlinked(target: &UnlinkedTargetV2) -> Option<UnlinkedTargetV1> {
             remote: remote.clone(),
         },
         UnlinkedTargetV2::CanonicalDeclaration { module, name } => UnlinkedTargetV1::CanonicalDeclaration {
-            module: module.local()?,
+            module: module.relocated(base)?,
             name: name.clone(),
         },
     })
@@ -474,6 +483,12 @@ impl From<ModuleV2> for ModuleV3 {
 impl ModuleV3 {
     /// Lowers to a schema-2 row; `None` if any reference is external.
     fn try_into_v2(&self) -> Option<ModuleV2> {
+        self.relocated_v2(None)
+    }
+
+    /// Lowers this row with external references relocated past `base`
+    /// (see [`ModuleRefV1::relocated`]).
+    fn relocated_v2(&self, base: Option<u32>) -> Option<ModuleV2> {
         Some(ModuleV2 {
             identity: self.identity.clone(),
             path: self.path.clone(),
@@ -486,7 +501,7 @@ impl ModuleV3 {
                     Some(ExportV1 {
                         exported_name: export.exported_name.clone(),
                         internal_name: export.internal_name.clone(),
-                        target: lower_unlinked(&export.target)?,
+                        target: lower_unlinked(&export.target, base)?,
                         span: export.span.clone(),
                     })
                 })
@@ -500,21 +515,21 @@ impl ModuleV3 {
                 .map(|export| {
                     Some(LinkedExportV1 {
                         name: export.name.clone(),
-                        target: lower_target(&export.target)?,
+                        target: lower_target(&export.target, base)?,
                         span: export.span.clone(),
                     })
                 })
                 .collect::<Option<_>>()?,
             globals: self.globals.clone(),
             import_bindings: self.import_bindings.clone(),
-            linked_reads: self.linked_reads.iter().map(lower_target).collect::<Option<_>>()?,
-            runtime_dependencies: self.runtime_dependencies.iter().map(|module| module.local()).collect::<Option<_>>()?,
+            linked_reads: self.linked_reads.iter().map(|target| lower_target(target, base)).collect::<Option<_>>()?,
+            runtime_dependencies: self.runtime_dependencies.iter().map(|module| module.relocated(base)).collect::<Option<_>>()?,
             references: self
                 .references
                 .iter()
                 .map(|reference| {
                     Some(ReferenceV1 {
-                        target: reference.target.local()?,
+                        target: reference.target.relocated(base)?,
                         kind: reference.kind.clone(),
                         span: reference.span.clone(),
                     })
@@ -525,7 +540,7 @@ impl ModuleV3 {
                 .iter()
                 .map(|edge| {
                     Some(RuntimeEdgeV1 {
-                        dependency: edge.dependency.local()?,
+                        dependency: edge.dependency.relocated(base)?,
                         reason: edge.reason.clone(),
                         span: edge.span.clone(),
                     })
@@ -624,7 +639,19 @@ impl ModuleWorldV5 {
     /// reference (rule `MW5-L1`). The Universe writer keeps emitting V4
     /// through this.
     pub fn try_into_v4(&self) -> Option<ModuleWorldV4> {
-        let modules = self.modules.iter().map(ModuleV3::try_into_v2).collect::<Option<Vec<_>>>()?;
+        self.relocated_v4(None)
+    }
+
+    /// Lowers this world into the closed schema-4 shape, relocating every
+    /// external reference `External { k }` to `ArtifactModuleId(base + k)`.
+    ///
+    /// With `base = Some(modules.len())` the result addresses one extended
+    /// reference space: local rows first, then this world's external table.
+    /// No row is created for an external module; a loader must resolve the
+    /// relocated indices against prior artifact authority. `None` keeps the
+    /// closed-world contract and rejects any external reference.
+    pub fn relocated_v4(&self, base: Option<u32>) -> Option<ModuleWorldV4> {
+        let modules = self.modules.iter().map(|module| module.relocated_v2(base)).collect::<Option<Vec<_>>>()?;
         let semantic_rows = self
             .semantic_rows
             .iter()
@@ -636,7 +663,7 @@ impl ModuleWorldV5 {
                         .iter()
                         .map(|edge| {
                             Some(SemanticEdgeV1 {
-                                target: lower_node(&edge.target)?,
+                                target: lower_node(&edge.target, base)?,
                                 kind: edge.kind.clone(),
                                 span: edge.span.clone(),
                             })
@@ -651,14 +678,14 @@ impl ModuleWorldV5 {
             .map(|witness| {
                 Some(RuntimeAvailabilityWitnessV1 {
                     importer: witness.importer,
-                    dependency: witness.dependency.local()?,
+                    dependency: witness.dependency.relocated(base)?,
                     range: witness.range.clone(),
                     reason: witness.reason.clone(),
                     read_target: match &witness.read_target {
-                        Some(target) => Some(lower_target(target)?),
+                        Some(target) => Some(lower_target(target, base)?),
                         None => None,
                     },
-                    target: lower_target(&witness.target)?,
+                    target: lower_target(&witness.target, base)?,
                     product: witness.product.clone(),
                     producer: witness.producer.clone(),
                     required_at: witness.required_at.clone(),

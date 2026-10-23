@@ -2,6 +2,7 @@
 //! No source provider, interface builder, or linker is used by import.
 use crate::authority::{ModuleAuthorityBuildError, ModuleAuthorityMap, ModuleAuthoritySet};
 use crate::canonical_products::CanonicalExternalModuleWorld;
+use crate::external_authority::ExternalModuleAuthority;
 use crate::graph::*;
 use crate::interface::*;
 use crate::linker::*;
@@ -1470,6 +1471,71 @@ pub fn load_module_world_with_project_catalog_and_allocation_budget(
     Ok(world)
 }
 
+/// Loads one package's module authority against already admitted prefix
+/// authority (rule `MW5-M2`).
+///
+/// Every `External { k }` reference is relocated into an extended reference
+/// space (local rows, then the external table), and each external row is
+/// resolved through `projects` to a native [`ModuleId`] that `prefix` must
+/// already contain. No local row is created for a foreign module: the
+/// returned world owns exactly the artifact's local modules, while its edges,
+/// reads and exports may point into earlier generations.
+pub fn load_module_world_with_prefix_authority(
+    wire: &ModuleWorldV5,
+    limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+    projects: Arc<ProjectUniverse>,
+    prefix: &dyn ExternalModuleAuthority,
+) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    if wire.portable_topology_fingerprint()? != wire.topology_fingerprint {
+        return Err(invalid("portable module topology fingerprint mismatch"));
+    }
+    let base = u32::try_from(wire.modules.len()).map_err(|_| invalid("module count exceeds the artifact reference space"))?;
+    let lowered = wire
+        .relocated_v4(Some(base))
+        .map(|world| world.previous.world)
+        .ok_or_else(|| invalid("module world reference is outside its local and external tables"))?;
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = transaction.child(section_limit);
+    let mut external_ids = allocations.vector::<ModuleId>(wire.external_modules.len()).map_err(allocation_error)?;
+    for external in &wire.external_modules {
+        let id = resolve_external_module(external, &projects, limits, &mut allocations)?;
+        if !prefix.contains(&id) {
+            return Err(invalid(format!("external module {id} is absent from admitted prefix authority")));
+        }
+        external_ids.push(id);
+    }
+    let world = load_module_world_inner_with_prefix(&lowered, limits, &mut allocations, projects, &external_ids, Some(prefix))?;
+    transaction.commit_child(allocations).map_err(allocation_error)?;
+    Ok(world)
+}
+
+/// Resolves one stable external module row to its native identity.
+fn resolve_external_module(
+    external: &StableModuleRef,
+    projects: &ProjectUniverse,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<ModuleId, ArtifactError> {
+    if matches!(external.project, StableProjectRef::Session { .. }) {
+        return Err(invalid("session project identity in external module table is not permitted"));
+    }
+    let project = projects
+        .resolve_stable_project(&external.project)
+        .ok_or_else(|| invalid(format!("external module project has no exact workspace binding: {:?}", external.project)))?;
+    if external.path.len() > limits.max_recursion_depth {
+        return Err(invalid("external module path exceeds depth limit"));
+    }
+    let mut components = allocations.vector::<ModuleComponent>(external.path.len()).map_err(allocation_error)?;
+    for part in external.path.iter() {
+        ModuleComponent::validate_identifier(part).map_err(|e| invalid(e))?;
+        let boxed = allocations.boxed_str(part).map_err(allocation_error)?;
+        components.push(ModuleComponent::from_owned_identifier(boxed).map_err(|_| invalid("invalid identifier"))?);
+    }
+    let path = ModulePath::from_components(allocations.boxed_slice(components).map_err(allocation_error)?);
+    Ok(ModuleId { project, path })
+}
+
 /// Lowers a module world to the closed schema-2 form this loader reads.
 ///
 /// External module references are not yet resolved by this loader (rule
@@ -1496,6 +1562,19 @@ fn load_module_world_inner(
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
     universe: Arc<ProjectUniverse>,
+) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    load_module_world_inner_with_prefix(wire, limits, allocations, universe, &[], None)
+}
+
+/// Shared loader body. Indices below `wire.modules.len()` name local rows;
+/// indices past it name `external_ids` (already proven members of `prefix`).
+fn load_module_world_inner_with_prefix(
+    wire: &ModuleWorldV2,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+    universe: Arc<ProjectUniverse>,
+    external_ids: &[ModuleId],
+    prefix: Option<&dyn ExternalModuleAuthority>,
 ) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
     // Validate external projects
     for project in &wire.external_projects {
@@ -1546,6 +1625,11 @@ fn load_module_world_inner(
             return Err(invalid("module paths must be unique and sorted"));
         }
         ids.push(id);
+    }
+    let ref_count = ids.len().checked_add(external_ids.len()).ok_or_else(|| allocation_error(AllocationError::Overflow))?;
+    let mut ref_ids = allocations.vector::<ModuleId>(ref_count).map_err(allocation_error)?;
+    for id in ids.iter().chain(external_ids) {
+        ref_ids.push(id.clone_with_allocation_budget(allocations).map_err(allocation_error)?);
     }
     let entry = module_id(&ids, wire.entry, allocations)?;
     if !entry.path.is_root() {
@@ -1615,7 +1699,7 @@ fn load_module_world_inner(
                     remote: allocations.string(remote).map_err(allocation_error)?,
                 },
                 UnlinkedTargetV1::CanonicalDeclaration { module, name } => UnlinkedExportTarget::CanonicalDeclaration {
-                    module: module_id(&ids, *module, allocations)?,
+                    module: module_id(&ref_ids, *module, allocations)?,
                     name: allocations.string(name).map_err(allocation_error)?,
                 },
             };
@@ -1680,7 +1764,7 @@ fn load_module_world_inner(
             .vector::<(Box<str>, LinkedExport)>(payload.linked_exports.len())
             .map_err(allocation_error)?;
         for value in &payload.linked_exports {
-            let target = match target_in(&value.target, &ids, allocations)? {
+            let target = match target_in(&value.target, &ref_ids, allocations)? {
                 LinkedReadSpec::Module(module) => LinkedExportTarget::Module(module),
                 LinkedReadSpec::Binding(symbol) => LinkedExportTarget::Binding(symbol),
             };
@@ -1734,12 +1818,12 @@ fn load_module_world_inner(
 
         let mut linked_reads = allocations.vector::<LinkedReadSpec>(payload.linked_reads.len()).map_err(allocation_error)?;
         for target in &payload.linked_reads {
-            linked_reads.push(target_in(target, &ids, allocations)?);
+            linked_reads.push(target_in(target, &ref_ids, allocations)?);
         }
 
         let mut runtime_dependencies = allocations.vector::<ModuleId>(payload.runtime_dependencies.len()).map_err(allocation_error)?;
         for value in &payload.runtime_dependencies {
-            runtime_dependencies.push(module_id(&ids, *value, allocations)?);
+            runtime_dependencies.push(module_id(&ref_ids, *value, allocations)?);
         }
 
         let linked_module = LinkedModule {
@@ -1777,7 +1861,7 @@ fn load_module_world_inner(
         for edge in &payload.references {
             ref_edges.push(ReferenceEdge {
                 from: id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
-                to: module_id(&ids, edge.target, allocations)?,
+                to: module_id(&ref_ids, edge.target, allocations)?,
                 kind: reference_in(&edge.kind),
                 range: range(&edge.span)?,
             });
@@ -1790,7 +1874,7 @@ fn load_module_world_inner(
         for edge in &payload.runtime_edges {
             rt_edges.push(RuntimeDependencyEdge {
                 importer: id.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
-                dependency: module_id(&ids, edge.dependency, allocations)?,
+                dependency: module_id(&ref_ids, edge.dependency, allocations)?,
                 reason: runtime_in(&edge.reason),
                 range: range(&edge.span)?,
                 provenance: None,
@@ -1905,12 +1989,12 @@ fn load_module_world_inner(
         .vector::<(SemanticNodeId, Vec<SemanticEdge>)>(wire.semantic_rows.len())
         .map_err(allocation_error)?;
     for row in &wire.semantic_rows {
-        let node = node_in(&row.node, &ids, allocations)?;
+        let node = node_in(&row.node, &ref_ids, allocations)?;
         let mut edges = allocations.vector::<SemanticEdge>(row.edges.len()).map_err(allocation_error)?;
         for edge in &row.edges {
             edges.push(SemanticEdge {
                 from: node.clone_with_allocation_budget(allocations).map_err(allocation_error)?,
-                to: node_in(&edge.target, &ids, allocations)?,
+                to: node_in(&edge.target, &ref_ids, allocations)?,
                 kind: semantic_in(&edge.kind),
                 range: range(&edge.span)?,
             });
@@ -1926,18 +2010,18 @@ fn load_module_world_inner(
 
     for module in modules.values() {
         for target in &module.linked_reads {
-            validate_target(target, &interfaces)?;
+            validate_target(target, &interfaces, prefix)?;
         }
         for export in module.interface.exports.values() {
             match &export.target {
                 LinkedExportTarget::Module(_) => {}
-                LinkedExportTarget::Binding(symbol) => validate_binding_target(&symbol.module, &symbol.name, &interfaces)?,
+                LinkedExportTarget::Binding(symbol) => validate_binding_target(&symbol.module, &symbol.name, &interfaces, prefix)?,
             }
         }
         if let Some(iface) = interfaces.get(&module.interface.module) {
             for export in iface.exports.values() {
                 if let UnlinkedExportTarget::CanonicalDeclaration { module, name } = &export.target {
-                    validate_binding_target(module, name, &interfaces)?;
+                    validate_binding_target(module, name, &interfaces, prefix)?;
                 }
             }
         }
@@ -1962,6 +2046,10 @@ fn load_module_world_inner(
             let id = &ids[index];
             for edge in graphs.runtime.edges_from(id) {
                 let dependency = &edge.dependency;
+                // A prefix generation is initialized before this artifact.
+                if external_ids.contains(dependency) {
+                    continue;
+                }
                 let dep_idx = ids.binary_search(dependency).map_err(|_| invalid("runtime graph dependency is absent"))?;
                 match positions[dep_idx] {
                     Some(dep_pos) if dep_pos < pos => {}
@@ -1972,7 +2060,7 @@ fn load_module_world_inner(
     }
 
     // Ordering evidence above proves the eager subgraph; validate all modules too.
-    validate_runtime_dag(&graphs.runtime, &ids, allocations)?;
+    validate_runtime_dag(&graphs.runtime, &ids, external_ids, allocations)?;
     let source_modules =
         ModuleAuthorityMap::from_budgeted_sorted_entries(allocations.vector(0).map_err(allocation_error)?, allocations).map_err(authority_error)?;
     let topology = ModuleTopology {
@@ -1997,18 +2085,23 @@ fn load_module_world_inner(
     CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology).map_err(invalid)
 }
 /// Iterative Kahn validation avoids recursive SCC traversal on artifact input.
-fn validate_runtime_dag(graph: &RuntimeDependencyGraph, ids: &[ModuleId], allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
+fn validate_runtime_dag(
+    graph: &RuntimeDependencyGraph,
+    ids: &[ModuleId],
+    external_ids: &[ModuleId],
+    allocations: &mut AllocationBudget,
+) -> Result<(), ArtifactError> {
+    // Edges into prefix generations cannot close a cycle inside this world.
+    let local_edges = |id: &ModuleId| graph.edges_from(id).iter().filter(|edge| !external_ids.contains(&edge.dependency)).count();
     let edge_count = ids
         .iter()
-        .try_fold(0_usize, |count, id| {
-            count.checked_add(graph.edges_from(id).len()).ok_or(AllocationError::Overflow)
-        })
+        .try_fold(0_usize, |count, id| count.checked_add(local_edges(id)).ok_or(AllocationError::Overflow))
         .map_err(allocation_error)?;
     let mut edges = allocations.vector::<(usize, usize)>(edge_count).map_err(allocation_error)?;
     let mut degrees = allocations.vector::<usize>(ids.len()).map_err(allocation_error)?;
     degrees.resize(ids.len(), 0);
     for (user, id) in ids.iter().enumerate() {
-        for edge in graph.edges_from(id) {
+        for edge in graph.edges_from(id).iter().filter(|edge| !external_ids.contains(&edge.dependency)) {
             let dependency = ids.binary_search(&edge.dependency).map_err(|_| invalid("runtime graph dependency is absent"))?;
             degrees[user] = degrees[user].checked_add(1).ok_or(AllocationError::Overflow)?;
             edges.push((dependency, user));
@@ -2057,9 +2150,11 @@ fn validate_binding_target(
     module: &ModuleId,
     name: &str,
     interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+    prefix: Option<&dyn ExternalModuleAuthority>,
 ) -> Result<(), ArtifactError> {
     let interface_binding = interfaces
         .get(module)
+        .or_else(|| prefix.and_then(|prefix| prefix.interface(module)))
         .is_some_and(|interface| interface.declarations.contains_key(name) || interface.exports.contains_key(name));
     let catalog_binding = module.project.is_universe()
         && phalcom_native_meta::UNIVERSE_BINDINGS.iter().any(|binding| {
@@ -2077,9 +2172,13 @@ fn validate_binding_target(
     Ok(())
 }
 
-fn validate_target(target: &LinkedReadSpec, interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>) -> Result<(), ArtifactError> {
+fn validate_target(
+    target: &LinkedReadSpec,
+    interfaces: &ModuleAuthorityMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+    prefix: Option<&dyn ExternalModuleAuthority>,
+) -> Result<(), ArtifactError> {
     if let LinkedReadSpec::Binding(symbol) = target {
-        validate_binding_target(&symbol.module, &symbol.name, interfaces)?;
+        validate_binding_target(&symbol.module, &symbol.name, interfaces, prefix)?;
     }
     Ok(())
 }
@@ -2220,7 +2319,7 @@ mod allocation_materialization_tests {
         add_edge(&mut graph, &ids[1], &ids[2]);
 
         let mut allocations = AllocationBudget::new(1024);
-        validate_runtime_dag(&graph, &ids, &mut allocations).unwrap();
+        validate_runtime_dag(&graph, &ids, &[], &mut allocations).unwrap();
         let expected = Layout::array::<(usize, usize)>(3).unwrap().size()
             + Layout::array::<usize>(ids.len()).unwrap().size()
             + Layout::array::<usize>(ids.len() + 1).unwrap().size()
@@ -2229,7 +2328,7 @@ mod allocation_materialization_tests {
 
         add_edge(&mut graph, &ids[2], &ids[0]);
         let mut cycle_allocations = AllocationBudget::new(1024);
-        assert!(validate_runtime_dag(&graph, &ids, &mut cycle_allocations).is_err());
+        assert!(validate_runtime_dag(&graph, &ids, &[], &mut cycle_allocations).is_err());
         assert!(cycle_allocations.requested() > 0);
     }
 }
