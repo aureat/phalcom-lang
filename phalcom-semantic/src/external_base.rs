@@ -204,13 +204,16 @@ impl ExternalSemanticSessionSeed {
                     .declarations
                     .intrinsic_type_owner(declaration)
                     .ok_or_else(|| incomplete("intrinsic type-owner declaration has no owner"))?;
-                if declarations.intrinsic_type_owner(declaration).is_some() {
-                    return Err(incomplete(format!(
-                        "intrinsic type-owner authority is owned by multiple immutable artifact generations: {:?}",
-                        declaration
-                    )));
+                if let Some(existing) = declarations.intrinsic_type_owner(declaration) {
+                    if existing != owner {
+                        return Err(incomplete(format!(
+                            "intrinsic type-owner authority disagrees for immutable declaration {:?}: {:?} versus {:?}",
+                            declaration, existing, owner
+                        )));
+                    }
+                } else {
+                    declarations.register_intrinsic_type_owner(declaration.clone(), owner);
                 }
-                declarations.register_intrinsic_type_owner(declaration.clone(), owner);
             }
 
             for (owner, superclass) in snapshot.hierarchy.iter_superclasses() {
