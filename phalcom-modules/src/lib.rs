@@ -72,7 +72,7 @@ pub use package_info::{
 };
 pub use project::{
     PackageAuthorityRegistrationError, ProjectUniverse, ResolvedProject, TrustedPackageResolver, ValidatedPackageAuthorityReceipt, discover_owning_project,
-    discover_standalone_package_root,
+    discover_standalone_package_root, package_project_id,
 };
 pub use query::{ModuleQueryFacade, query_fallback_scan_count, reset_query_fallback_scan_count};
 pub use resolver::{

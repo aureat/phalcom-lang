@@ -41,6 +41,10 @@ pub enum ProjectError {
 
     #[error("Invalid entry module '{0}': {1}")]
     InvalidEntry(String, String),
+
+    /// Two distinct packages derived the same package-identity project id.
+    #[error("Package project id collision: '{package}' derives {id}, already bound to another project")]
+    PackageProjectIdCollision { package: String, id: crate::identity::ResolvedProjectId },
 }
 
 // ── Source / Resolution Errors ─────────────────────────────────────────────

@@ -84,17 +84,14 @@ pub fn build_full_package_telosc(
     // compilation itself must already export the package's published identity.
     let compiled = {
         let _identity = ArtifactIdentityScope::enter(image.projects.as_ref(), Some((image.project, compiler.identity.clone())));
-        let entry = EntrySelection::Project(project_root.to_path_buf());
-        if prefix.packages.is_empty() {
-            universe.compile_user_entry(entry)
-        } else {
-            super::compile::ProgramCompiler::compile_entry_selection_with_options_artifact_base_and_availability(
-                entry,
-                Arc::clone(&prefix.base),
-                Arc::clone(universe.availability()),
-                &super::compile::ProgramCompilationOptions::default(),
-            )
-        }
+        // Always over the admitted base, even with no dependencies: its
+        // project universe numbers the package by package identity.
+        super::compile::ProgramCompiler::compile_entry_selection_with_options_artifact_base_and_availability(
+            EntrySelection::Project(project_root.to_path_buf()),
+            Arc::clone(&prefix.base),
+            Arc::clone(universe.availability()),
+            &super::compile::ProgramCompilationOptions::default(),
+        )
         .map_err(executable_error)?
     };
     let project = match &compiled.entry.project {
@@ -270,6 +267,9 @@ fn admit_package_set(blobs: &[Vec<u8>], universe: &LoadedUniverseArtifact, limit
     }
     let mut budget = total_budget(limits);
     let mut projects: ProjectUniverse = universe.formal_image.modules().projects().as_ref().clone();
+    // Package projects, admitted here or compiled later over this base, are
+    // numbered by package identity so fingerprints match their builds.
+    projects.use_package_identity_ids();
     let decoded_wires = blobs
         .iter()
         .map(|bytes| StagedTeloscCompilerWire::decode(bytes, limits, &mut budget).map_err(executable_error))
@@ -297,7 +297,9 @@ fn admit_package_set(blobs: &[Vec<u8>], universe: &LoadedUniverseArtifact, limit
         let digest = wire.artifact_digest();
         let namespace = ModuleComponent::from_identifier(&package).map_err(|_| TeloscArtifactError::Capability("package name is not a valid namespace"))?;
         let uri = format!("telos-artifact://{package}@{version}/{}", digest.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>());
-        let project = projects.register_artifact_package(&package, namespace, &uri);
+        let project = projects
+            .register_artifact_package(&package, &version, namespace, &uri)
+            .map_err(|error| executable_error(format!("package artifact registration rejected: {error}")))?;
         if claims.iter().any(|claim: &Claim| claim.project == project || claim.identity == identity) {
             return Err(TeloscArtifactError::Capability("package artifact set admits one artifact twice"));
         }
@@ -395,9 +397,8 @@ fn admit_package_set(blobs: &[Vec<u8>], universe: &LoadedUniverseArtifact, limit
 /// Orders decoded package wires so every package is admitted after the
 /// packages it references, ties broken by stable project identity.
 ///
-/// Project ids are assigned in admission order and module fingerprints hash
-/// them, so a package must be admitted at the position its own build gave
-/// it: after its dependencies, in the same canonical order its builder used.
+/// Project ids come from package identity, not from this order; the order
+/// only makes admission deterministic and independent of `--dep` order.
 fn admission_order(wires: &[StagedTeloscCompilerWire]) -> Result<Vec<usize>, TeloscArtifactError> {
     let identities = wires
         .iter()

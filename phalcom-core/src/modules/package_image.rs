@@ -101,6 +101,9 @@ impl PackageCompilerImage {
             project_root.join("project.toml")
         };
         let mut project_universe = base.projects().as_ref().clone();
+        // A published package is numbered by its package identity, the id it
+        // takes when loaded as an artifact.
+        project_universe.use_package_identity_ids();
         let project = project_universe.load_root(&manifest_path).map_err(ProgramCompileError::Project)?;
         let resolved_project = project_universe
             .get_project(project)

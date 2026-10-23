@@ -155,6 +155,7 @@ pub struct ProjectUniverse {
     roots: BTreeMap<ProjectSourceIdentity, ResolvedProjectId>,
     package_authorities: BTreeMap<StableProjectRef, ValidatedPackageAuthorityReceipt>,
     synthetic_ids: SyntheticProjectIdAllocator,
+    package_identity_ids: bool,
 }
 
 impl Default for ProjectUniverse {
@@ -170,6 +171,36 @@ impl ProjectUniverse {
             roots: BTreeMap::new(),
             package_authorities: BTreeMap::new(),
             synthetic_ids: SyntheticProjectIdAllocator,
+            package_identity_ids: false,
+        }
+    }
+
+    /// Makes every manifest project registered from now on take its
+    /// package-identity id (see [`package_project_id`]) instead of the next
+    /// sequential one.
+    ///
+    /// Package artifacts always take package-identity ids. A session that
+    /// builds or loads package artifacts opts in so the package compiled from
+    /// source gets the same id it will have when later loaded as an artifact,
+    /// whatever other packages share the session. Fingerprints hash project
+    /// ids, so this is what keeps them reproducible across admission sets.
+    pub fn use_package_identity_ids(&mut self) {
+        self.package_identity_ids = true;
+    }
+
+    /// Allocates the id of a new project: its package-identity id when
+    /// `package` is given and either `force` or the session opted in, else
+    /// the next sequential id.
+    fn allocate_project_id(&self, package: Option<(&str, &str)>, force: bool) -> Result<ResolvedProjectId, ProjectError> {
+        match package {
+            Some((name, version)) if force || self.package_identity_ids => {
+                let id = package_project_id(name, version);
+                if self.get_project(id).is_some() {
+                    return Err(ProjectError::PackageProjectIdCollision { package: name.to_owned(), id });
+                }
+                Ok(id)
+            }
+            _ => Ok(ResolvedProjectId::from_raw((self.projects.len() + 1) as u32)),
         }
     }
 
@@ -180,7 +211,7 @@ impl ProjectUniverse {
 
     /// Gets a resolved project by its non-zero graph-node ID.
     pub fn get_project(&self, id: ResolvedProjectId) -> Option<&ResolvedProject> {
-        self.projects.get((id.raw() - 1) as usize)
+        self.projects.iter().find(|project| project.id == id)
     }
 
     /// Resolves a stable persistent project reference by exact identity.
@@ -318,13 +349,25 @@ impl ProjectUniverse {
     /// the logical `logical_uri`, it has no source root, and its only import
     /// roots are Universe and its own namespace. Package authority is still
     /// granted only by a trusted-resolver receipt bound to this project id.
-    /// Re-registering the same logical identity returns the existing id.
-    pub fn register_artifact_package(&mut self, name: &str, namespace: ModuleComponent, logical_uri: &str) -> ResolvedProjectId {
+    /// Re-registering the same logical identity returns the existing id; a
+    /// new package takes its package-identity id, so it is numbered the same
+    /// in every session whatever else that session admits.
+    ///
+    /// # Errors
+    ///
+    /// Fails when another project already holds the derived id.
+    pub fn register_artifact_package(
+        &mut self,
+        name: &str,
+        version: &str,
+        namespace: ModuleComponent,
+        logical_uri: &str,
+    ) -> Result<ResolvedProjectId, ProjectError> {
         let source_identity = ProjectSourceIdentity::from_path(logical_uri);
         if let Some(&id) = self.roots.get(&source_identity) {
-            return id;
+            return Ok(id);
         }
-        let id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
+        let id = self.allocate_project_id(Some((name, version)), true)?;
         let mut import_roots = BTreeMap::new();
         import_roots.insert(ModuleComponent::from_identifier("universe").expect("valid identifier"), (ImportRootTarget::Universe, false));
         import_roots.insert(namespace.clone(), (ImportRootTarget::Resolved(id), true));
@@ -342,7 +385,7 @@ impl ProjectUniverse {
             manifest: None,
         });
         self.roots.insert(source_identity, id);
-        id
+        Ok(id)
     }
 
     /// Finds a package project registered by [`Self::register_artifact_package`]
@@ -519,7 +562,10 @@ impl ProjectUniverse {
         // A workspace update can reload a mutable manifest while retaining its
         // graph slot. New projects still allocate monotonically after all slots.
         let existing = self.projects.iter().find(|project| project.persistent_project && project.source_identity == source_identity).map(|project| project.id);
-        let next_id = existing.unwrap_or_else(|| ResolvedProjectId::from_raw((self.projects.len() + 1) as u32));
+        let next_id = match existing {
+            Some(id) => id,
+            None => self.allocate_project_id(validated.version.as_deref().map(|version| (validated.name.as_str(), version)), false)?,
+        };
 
         let mut import_roots = BTreeMap::new();
         let universe_comp = ModuleComponent::from_identifier("universe").expect("valid identifier");
@@ -544,7 +590,8 @@ impl ProjectUniverse {
         };
 
         if let Some(existing) = existing {
-            self.projects[(existing.raw() - 1) as usize] = resolved_project;
+            let slot = self.projects.iter().position(|project| project.id == existing).expect("existing project has a graph slot");
+            self.projects[slot] = resolved_project;
         } else {
             self.projects.push(resolved_project);
         }
@@ -657,6 +704,20 @@ impl ProjectUniverse {
         self.roots.insert(source_identity, next_id);
         Ok(next_id)
     }
+}
+
+/// Derives the session-independent id of package `name` at `version`.
+///
+/// The id is a 32-bit FNV-1a hash of the name and version with the top bit
+/// set, so it never meets the small sequential ids of ordinary source
+/// projects. Every session admitting the same package numbers it the same.
+pub fn package_project_id(name: &str, version: &str) -> ResolvedProjectId {
+    let mut hash = 0x811c_9dc5u32;
+    for byte in name.bytes().chain(std::iter::once(0)).chain(version.bytes()) {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    ResolvedProjectId::from_raw(0x8000_0000 | hash)
 }
 
 /// Discovers the nearest enclosing project root directory containing `project.toml`.

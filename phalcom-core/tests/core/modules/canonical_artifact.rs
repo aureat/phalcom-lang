@@ -1019,7 +1019,21 @@ fn fresh_process_target_runner() {
         .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(&slotmap_path)))
         .expect("compile slotmap project in fresh process against loaded artifact must succeed");
     assert_eq!(compiled_slotmap.modules.len(), 4, "slotmap project modules count must be 4");
-    let expected_slotmap_modules = compiled_slotmap.modules.keys().cloned().collect::<BTreeSet<_>>();
+    // A captured package is numbered by its package identity, not by the
+    // sequential id the plain source compilation gave it.
+    let slotmap_project = compiled_slotmap
+        .entry
+        .project
+        .as_resolved()
+        .and_then(|project| compiled_slotmap.project_universe.get_project(project))
+        .and_then(|project| project.manifest.as_ref())
+        .map(|manifest| phalcom_modules::package_project_id(&manifest.name, manifest.version.as_deref().expect("slotmap declares a version")))
+        .expect("slotmap compiles from a validated manifest");
+    let expected_slotmap_modules = compiled_slotmap
+        .modules
+        .keys()
+        .map(|module| phalcom_modules::ModuleId::resolved(slotmap_project, module.path.clone()))
+        .collect::<BTreeSet<_>>();
     assert_eq!(
         phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
         0,
