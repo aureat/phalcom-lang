@@ -3291,3 +3291,59 @@ fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits, allocatio
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod artifact_owner_catalog_regressions {
+    use super::*;
+    use crate::artifact::identity::{StableOwnerCatalog, empty_owner_inputs};
+    use phalcom_modules::{ProjectIdentity, ProjectUniverse};
+    use phalcom_type_meta::fingerprint::Fingerprint128;
+
+    #[test]
+    fn universe_owner_requires_explicit_module_authority_when_catalog_is_supplied() {
+        let (mut wire, projects) = empty_owner_inputs();
+        let stable = StableModuleRef {
+            project: StableProjectRef::Builtin { namespace: "universe".into(), version: "0.1.0".into() },
+            path: Box::new([]),
+        };
+        let catalog = StableOwnerCatalog::new(&wire, &projects).unwrap();
+        let mut allocations = AllocationBudget::new(64 * 1024);
+        assert_eq!(module_in_with_allocation_budget(&stable, &mut allocations, None).unwrap().project, ProjectIdentity::Universe);
+        assert!(module_in_with_allocation_budget(&stable, &mut allocations, Some(&catalog)).is_err());
+        wire.external_projects.push(stable.project.clone());
+        let catalog = StableOwnerCatalog::new(&wire, &projects).unwrap();
+        assert_eq!(module_in_with_allocation_budget(&stable, &mut allocations, Some(&catalog)).unwrap().project, ProjectIdentity::Universe);
+    }
+
+    #[test]
+    fn catalog_relocates_a_real_persistent_project_but_rejects_an_unlisted_module_owner() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("library");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"library\"\nnamespace = \"library\"\nversion = \"1.0.0\"\n",
+        ).unwrap();
+        std::fs::write(root.join("src/package.ph"), "").unwrap();
+        let mut projects = ProjectUniverse::new();
+        let id = projects.load_root(root.join("project.toml")).unwrap();
+        let project = projects.get_project(id).unwrap();
+        let owner = StableProjectRef::SourceArtifact {
+            logical_uri: project.source_identity.0.to_string_lossy().into_owned().into_boxed_str(),
+            source_fingerprint: Fingerprint128(project.revision_fingerprint().0),
+        };
+        let stable = StableModuleRef { project: owner.clone(), path: Box::new([]) };
+        let (mut wire, _) = empty_owner_inputs();
+        let mut allocations = AllocationBudget::new(64 * 1024);
+
+        let catalog = StableOwnerCatalog::new(&wire, &projects).unwrap();
+        assert!(module_in_with_allocation_budget(&stable, &mut allocations, Some(&catalog)).is_err());
+        assert!(module_in_with_allocation_budget(&stable, &mut allocations, None).is_err());
+
+        wire.external_projects.push(owner);
+        let catalog = StableOwnerCatalog::new(&wire, &projects).unwrap();
+        let module = module_in_with_allocation_budget(&stable, &mut allocations, Some(&catalog)).unwrap();
+        assert_eq!(module.project, ProjectIdentity::Resolved(id));
+        assert!(module.path.is_root());
+    }
+}
