@@ -191,3 +191,107 @@ fn referential(message: impl Into<String>) -> ArtifactError {
 fn allocation_error(error: AllocationError) -> ArtifactError {
     ArtifactError::Allocation(error)
 }
+
+/// Exact owner authority made ambient for the nested import families that
+/// still take no catalog parameter (`LD-C4`).
+///
+/// Package semantic rows nest stable owners inside parameter owners, `Self`
+/// terms, trait references, callable owners and associated members. Those
+/// helpers historically resolved through the Universe-only `from_stable_*`
+/// functions. While an [`AmbientOwnerScope`] is live, the `scoped_stable_*`
+/// resolvers below consult the artifact's exact [`StableOwnerCatalog`] first
+/// and fall back to Universe-only resolution only when the catalog refuses.
+pub(crate) mod ambient {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    type OwnedOwners = Rc<(ModuleWorldV5, ProjectUniverse)>;
+
+    thread_local! {
+        static ACTIVE: RefCell<Vec<OwnedOwners>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Guard installing one artifact's owner catalog for the current thread.
+    pub(crate) struct AmbientOwnerScope(());
+
+    impl AmbientOwnerScope {
+        /// Installs `module_world` + `projects` until the guard drops.
+        pub(crate) fn enter(module_world: &ModuleWorldV5, projects: &ProjectUniverse) -> Self {
+            ACTIVE.with(|active| active.borrow_mut().push(Rc::new((module_world.clone(), projects.clone()))));
+            Self(())
+        }
+    }
+
+    impl Drop for AmbientOwnerScope {
+        fn drop(&mut self) {
+            ACTIVE.with(|active| {
+                active.borrow_mut().pop();
+            });
+        }
+    }
+
+    fn with_catalog<T>(resolve: impl FnOnce(&StableOwnerCatalog<'_>) -> Result<T, ArtifactError>) -> Option<Result<T, String>> {
+        let owners = ACTIVE.with(|active| active.borrow().last().cloned())?;
+        let catalog = match StableOwnerCatalog::new(&owners.0, &owners.1) {
+            Ok(catalog) => catalog,
+            Err(error) => return Some(Err(error.to_string())),
+        };
+        Some(resolve(&catalog).map_err(|error| error.to_string()))
+    }
+
+    fn scoped<T>(
+        catalog: impl FnOnce(&StableOwnerCatalog<'_>) -> Result<T, ArtifactError>,
+        universe: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        match with_catalog(catalog) {
+            Some(Ok(value)) => Ok(value),
+            Some(Err(error)) => universe().map_err(|_| error),
+            None => universe(),
+        }
+    }
+
+    /// Resolves a stable module through the ambient catalog, else Universe.
+    pub(crate) fn scoped_stable_module(stable: &StableModuleRef) -> Result<ModuleId, String> {
+        scoped(|catalog| catalog.module(stable), || crate::metadata::stable_identity::from_stable_module(stable))
+    }
+
+    /// Resolves a stable project through the ambient catalog, else Universe.
+    pub(crate) fn scoped_stable_project(stable: &StableProjectRef) -> Result<crate::identity::ProjectIdentity, String> {
+        scoped(
+            |catalog| {
+                if catalog.module_world.modules.iter().any(|module| module.identity.project == *stable)
+                    || catalog.module_world.external_projects.contains(stable)
+                {
+                    catalog
+                        .projects
+                        .resolve_stable_project(stable)
+                        .ok_or_else(|| referential("stable project identity has no exact persistent workspace binding"))
+                } else {
+                    Err(referential("stable project is neither internal nor allowlisted"))
+                }
+            },
+            || crate::metadata::stable_identity::from_stable_project(stable),
+        )
+    }
+
+    /// Resolves a stable declaration through the ambient catalog, else Universe.
+    pub(crate) fn scoped_stable_declaration(stable: &StableDeclarationRef) -> Result<DeclarationId, String> {
+        scoped(|catalog| catalog.declaration(stable), || crate::metadata::stable_identity::from_stable_declaration(stable))
+    }
+
+    /// Resolves a stable variant through the ambient catalog, else Universe.
+    pub(crate) fn scoped_stable_variant(stable: &StableVariantRef) -> Result<VariantId, String> {
+        scoped(|catalog| catalog.variant(stable), || crate::metadata::stable_identity::from_stable_variant(stable))
+    }
+
+    /// Resolves a stable implementation through the ambient catalog, else Universe.
+    pub(crate) fn scoped_stable_impl(stable: &StableImplRef) -> Result<ImplId, String> {
+        scoped(|catalog| catalog.implementation(stable), || crate::metadata::stable_identity::from_stable_impl(stable))
+    }
+
+    /// Resolves a stable callable through the ambient catalog, else Universe.
+    pub(crate) fn scoped_stable_callable(stable: &StableCallableRef) -> Result<CallableId, String> {
+        scoped(|catalog| catalog.callable(stable), || crate::metadata::stable_identity::from_stable_callable(stable))
+    }
+}

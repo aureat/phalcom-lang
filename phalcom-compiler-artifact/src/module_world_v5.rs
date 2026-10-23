@@ -481,11 +481,6 @@ impl From<ModuleV2> for ModuleV3 {
 }
 
 impl ModuleV3 {
-    /// Lowers to a schema-2 row; `None` if any reference is external.
-    fn try_into_v2(&self) -> Option<ModuleV2> {
-        self.relocated_v2(None)
-    }
-
     /// Lowers this row with external references relocated past `base`
     /// (see [`ModuleRefV1::relocated`]).
     fn relocated_v2(&self, base: Option<u32>) -> Option<ModuleV2> {

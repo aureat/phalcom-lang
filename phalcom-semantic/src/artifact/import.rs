@@ -21,8 +21,11 @@ use crate::identity::{
     BindingId, CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DataConstructorId, DeclarationId, DiagnosticCauseId, DispatchSide,
     ExplanationId, SourceOwner, SourceSiteId, SourceSiteLocalId, VariantConstructorId, VariantFieldId,
 };
+use crate::artifact::identity::ambient::{
+    scoped_stable_callable, scoped_stable_declaration, scoped_stable_impl, scoped_stable_module, scoped_stable_project, scoped_stable_variant,
+};
 use crate::metadata::stable_identity::{
-    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_module, from_stable_project, from_stable_variant,
+    from_stable_dispatch_side,
 };
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::case_environment::CaseTypeEnvironment;
@@ -261,9 +264,9 @@ fn referential(message: impl Into<String>) -> ArtifactError {
 
 pub fn import_parameter_owner(owner: &ParameterOwnerV1) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match owner {
-        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(from_stable_declaration(owner).map_err(referential)?),
-        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(from_stable_callable(owner).map_err(referential)?),
-        ParameterOwnerV1::Impl { owner } => TypeParameterOwner::Impl(from_stable_impl(owner).map_err(referential)?),
+        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(scoped_stable_declaration(owner).map_err(referential)?),
+        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(scoped_stable_callable(owner).map_err(referential)?),
+        ParameterOwnerV1::Impl { owner } => TypeParameterOwner::Impl(scoped_stable_impl(owner).map_err(referential)?),
     })
 }
 
@@ -295,7 +298,7 @@ pub fn import_type_term(term: &TypeTermV1, relocation: &TypeRelocation) -> Resul
     Ok(match term {
         TypeTermV1::Canonical { ty } => TypeTerm::Canonical(relocation.ty(*ty)?),
         TypeTermV1::SelfType { term } => TypeTerm::SelfType(SelfTypeTerm {
-            owner: from_stable_declaration(&term.owner).map_err(referential)?,
+            owner: scoped_stable_declaration(&term.owner).map_err(referential)?,
             side: from_stable_dispatch_side(term.side),
             role: import_self_role(&term.role),
         }),
@@ -323,7 +326,7 @@ pub(crate) fn import_stable_module_with_allocation_budget(
     stable: &phalcom_type_meta::identity::StableModuleRef,
     allocations: &mut AllocationBudget,
 ) -> Result<crate::identity::ModuleId, ArtifactError> {
-    let project = from_stable_project(&stable.project).map_err(referential)?;
+    let project = scoped_stable_project(&stable.project).map_err(referential)?;
     let mut components = allocations
         .vector::<crate::identity::ModuleComponent>(stable.path.len())
         .map_err(allocation_error)?;
@@ -592,7 +595,7 @@ pub fn import_constraint(constraint: &GenericConstraintV1, relocation: &TypeRelo
         GenericConstraintV1::Conforms { subject, trait_ref } => GenericConstraint::Conforms {
             subject: import_type_term(subject, relocation)?,
             trait_ref: crate::traits::TraitRef {
-                declaration: from_stable_declaration(&trait_ref.declaration).map_err(referential)?,
+                declaration: scoped_stable_declaration(&trait_ref.declaration).map_err(referential)?,
                 arguments: trait_ref
                     .arguments
                     .iter()
@@ -1833,9 +1836,9 @@ fn import_exact_callable(callable: &StableCallableRef) -> Result<CallableId, Art
         return Err(referential("artifact callable selector is not in canonical encoding"));
     }
     let owner = match &callable.owner {
-        StableCallableOwnerRef::Declaration(declaration) => CallableOwnerId::Declaration(from_stable_declaration(declaration).map_err(referential)?),
-        StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(from_stable_variant(variant).map_err(referential)?),
-        StableCallableOwnerRef::Conformance(implementation) => CallableOwnerId::Conformance(from_stable_impl(implementation).map_err(referential)?),
+        StableCallableOwnerRef::Declaration(declaration) => CallableOwnerId::Declaration(scoped_stable_declaration(declaration).map_err(referential)?),
+        StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(scoped_stable_variant(variant).map_err(referential)?),
+        StableCallableOwnerRef::Conformance(implementation) => CallableOwnerId::Conformance(scoped_stable_impl(implementation).map_err(referential)?),
     };
     Ok(CallableId::new(
         owner,
@@ -2831,7 +2834,7 @@ fn import_unknown_reason_with_allocation_budget(reason: &UnknownReasonV1, alloca
 }
 
 fn import_source_span(source: &phalcom_compiler_artifact::semantic::world::EnumRequirementSourceV1) -> Result<SemanticSourceSpan, ArtifactError> {
-    let module = from_stable_module(&source.module).map_err(referential)?;
+    let module = scoped_stable_module(&source.module).map_err(referential)?;
     if source.range.start > source.range.end {
         return Err(referential("callable source span is inverted"));
     }
@@ -2981,7 +2984,7 @@ fn import_callable_associated_type_requirement_identity(
     identity: &phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeRequirementIdentityV1,
 ) -> Result<crate::traits::AssociatedTypeRequirementId, ArtifactError> {
     Ok(crate::traits::AssociatedTypeRequirementId::new(
-        from_stable_declaration(&identity.owner).map_err(referential)?,
+        scoped_stable_declaration(&identity.owner).map_err(referential)?,
         identity.index,
     ))
 }
@@ -4074,7 +4077,7 @@ fn import_associated_static_domain_declaration(
     declaration: &phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef,
 ) -> Result<crate::identity::AssociatedStaticDomainDeclarationId, ArtifactError> {
     Ok(crate::identity::AssociatedStaticDomainDeclarationId::new(
-        from_stable_declaration(&declaration.owner).map_err(referential)?,
+        scoped_stable_declaration(&declaration.owner).map_err(referential)?,
         declaration.name.clone(),
     ))
 }
@@ -4109,7 +4112,7 @@ pub(crate) fn import_static_case_domain(
 ) -> Result<crate::identity::StaticDomainDeclarationId, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1 as Portable;
     Ok(match domain {
-        Portable::Nominal { declaration } => crate::identity::StaticDomainDeclarationId::Nominal(from_stable_declaration(declaration).map_err(referential)?),
+        Portable::Nominal { declaration } => crate::identity::StaticDomainDeclarationId::Nominal(scoped_stable_declaration(declaration).map_err(referential)?),
         Portable::Associated { declaration } => {
             crate::identity::StaticDomainDeclarationId::Associated(import_associated_static_domain_declaration(declaration)?)
         }
@@ -4322,12 +4325,12 @@ fn import_static_case_owners(
 
 fn import_associated_member(member: &AssociatedMemberV1) -> Result<crate::associated::AssociatedMemberId, ArtifactError> {
     Ok(match member {
-        AssociatedMemberV1::Variant { variant } => crate::associated::AssociatedMemberId::Variant(from_stable_variant(variant).map_err(referential)?),
+        AssociatedMemberV1::Variant { variant } => crate::associated::AssociatedMemberId::Variant(scoped_stable_variant(variant).map_err(referential)?),
         AssociatedMemberV1::DataConstructor { owner } => crate::associated::AssociatedMemberId::DataConstructor(crate::identity::DataConstructorId::new(
-            from_stable_declaration(owner).map_err(referential)?,
+            scoped_stable_declaration(owner).map_err(referential)?,
         )),
         AssociatedMemberV1::DataComponent { owner, index } => crate::associated::AssociatedMemberId::DataComponent(crate::identity::DataComponentId::new(
-            from_stable_declaration(owner).map_err(referential)?,
+            scoped_stable_declaration(owner).map_err(referential)?,
             *index,
         )),
         AssociatedMemberV1::StaticDomain { declaration } => {
@@ -4335,7 +4338,7 @@ fn import_associated_member(member: &AssociatedMemberV1) -> Result<crate::associ
         }
         AssociatedMemberV1::TypeMember { owner, selector } => {
             crate::associated::AssociatedMemberId::TypeMember(crate::types::type_member::TypeMemberDeclarationId::new(
-                from_stable_declaration(owner).map_err(referential)?,
+                scoped_stable_declaration(owner).map_err(referential)?,
                 import_type_member_selector(selector),
             ))
         }
@@ -6704,6 +6707,12 @@ fn validate_and_import_semantic_world_inner(
         (Some(module_world), Some(projects)) => Some(StableOwnerCatalog::new(module_world, projects)?),
         (None, None) if !has_intrinsic_projection_rows => None,
         _ => return Err(referential("module world and project universe are required to resolve artifact semantic owners")),
+    };
+    // Nested owner families without a catalog parameter resolve through this
+    // scope (LD-C4) for the rest of the import transaction.
+    let _ambient_owners = match (module_world, projects) {
+        (Some(module_world), Some(projects)) => Some(crate::artifact::identity::ambient::AmbientOwnerScope::enter(module_world, projects)),
+        _ => None,
     };
     record_import_allocation_diagnostic_stage(2, allocations);
     // 3. Checked TypeRelocation. Multi-artifact callers may supply a private

@@ -990,6 +990,7 @@ pub fn reconstruct_query_image_v4_with_project_catalog_and_allocation_budget(
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, CanonicalDependencyFingerprints), CanonicalImageError> {
     let catalog = crate::artifact::StableOwnerCatalog::new(module_world, modules.linked().universe.as_ref())
         .map_err(CanonicalImageError::Artifact)?;
+    let _ambient_owners = crate::artifact::identity::ambient::AmbientOwnerScope::enter(module_world, modules.linked().universe.as_ref());
     reconstruct_query_image_v4_with_owner_catalog_and_allocation_budget(image, snapshot, world, modules, Some(&catalog), limits, transaction)
 }
 
