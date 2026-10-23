@@ -215,6 +215,18 @@ impl ProjectUniverse {
         }
     }
 
+    /// The unique trusted package identity that owns this native persistent
+    /// project, if one has been registered. Receipts are indexed by full stable
+    /// identity (including artifact fingerprint), never by a display name.
+    ///
+    /// Registration enforces the reverse uniqueness invariant: two distinct
+    /// package identities cannot claim the same native project ID.
+    pub fn stable_package_owner(&self, project_id: ResolvedProjectId) -> Option<&StableProjectRef> {
+        self.package_authorities
+            .iter()
+            .find_map(|(identity, receipt)| (receipt.project_id() == project_id).then_some(identity))
+    }
+
     /// Keeps graph slots and receipts while allowing mutable source manifests
     /// to be loaded again. Artifact projects retain their validated bindings.
     pub(crate) fn workspace_update_candidate(&self, immutable: impl Fn(ResolvedProjectId) -> bool) -> Self {
@@ -257,6 +269,15 @@ impl ProjectUniverse {
             return Err(PackageAuthorityRegistrationError::NonPersistentProject);
         }
         if self.package_authorities.get(stable_project).is_some_and(|registered| registered != receipt) {
+            return Err(PackageAuthorityRegistrationError::ConflictingBinding);
+        }
+        // Enforce a bijective persistent package-owner mapping. This prevents
+        // distinct artifact identities (including different fingerprints for
+        // the same package/version) from aliasing one native receiving ID.
+        if self
+            .stable_package_owner(receipt.project_id())
+            .is_some_and(|existing| existing != stable_project)
+        {
             return Err(PackageAuthorityRegistrationError::ConflictingBinding);
         }
         Ok(receipt.project_id())
