@@ -24,6 +24,7 @@ use phalcom_semantic::artifact::import::{
 use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_project_catalog_and_allocation_budget;
 use phalcom_semantic::canonical_image::{
     CanonicalDependencyFingerprints, CanonicalSemanticQueryImage, CanonicalSemanticWorldId,
+    ExternalSemanticQueryCatalogue, ExternalSemanticQueryGeneration,
 };
 use phalcom_semantic::snapshot::SemanticSnapshot;
 use phalcom_semantic::static_value::StaticValueStore;
@@ -40,7 +41,7 @@ pub(crate) struct StagedPackageSemanticGeneration {
     pub modules: Arc<CanonicalExternalModuleWorld>,
     pub snapshot: Arc<SemanticSnapshot>,
     pub queries: Arc<CanonicalSemanticQueryImage>,
-    pub fingerprints: CanonicalDependencyFingerprints,
+    pub fingerprints: Arc<CanonicalDependencyFingerprints>,
 }
 
 /// Fully validated immutable package-artifact base prior to workspace
@@ -52,6 +53,7 @@ pub(crate) struct ComposedPackageSemanticBase {
     modules: Arc<ExternalModuleAuthoritySet>,
     type_store: Arc<TypeStore>,
     static_values: Arc<StaticValueStore>,
+    query_catalogue: Arc<ExternalSemanticQueryCatalogue>,
     generations: Vec<StagedPackageSemanticGeneration>,
 }
 
@@ -60,6 +62,7 @@ impl ComposedPackageSemanticBase {
     pub(crate) fn modules(&self) -> &Arc<ExternalModuleAuthoritySet> { &self.modules }
     pub(crate) fn type_store(&self) -> &Arc<TypeStore> { &self.type_store }
     pub(crate) fn static_values(&self) -> &Arc<StaticValueStore> { &self.static_values }
+    pub(crate) fn query_catalogue(&self) -> &Arc<ExternalSemanticQueryCatalogue> { &self.query_catalogue }
     pub(crate) fn generations(&self) -> &[StagedPackageSemanticGeneration] { &self.generations }
 
     /// Exact semantic generation owning one externally provided module.
@@ -239,11 +242,34 @@ impl StagedTeloscCompilerWire {
             }
         }
 
+        let mut query_generations = composition_budget
+            .vector::<ExternalSemanticQueryGeneration>(generations.len())
+            .map_err(ArtifactError::Allocation)?;
+        for generation in &generations {
+            query_generations.push(
+                ExternalSemanticQueryGeneration::from_validated_parts_with_allocation_budget(
+                    &generation.world,
+                    Arc::clone(&generation.snapshot),
+                    Arc::clone(&generation.queries),
+                    Arc::clone(&generation.fingerprints),
+                    type_store.as_ref(),
+                    static_values.as_ref(),
+                    &mut composition_budget,
+                )?,
+            );
+        }
+        let query_catalogue = ExternalSemanticQueryCatalogue::from_generations_with_allocation_budget(
+            query_generations,
+            &mut composition_budget,
+        )?;
+        let query_catalogue = composition_budget.arc(query_catalogue).map_err(ArtifactError::Allocation)?;
+
         let base = ComposedPackageSemanticBase {
             projects: final_projects,
             modules,
             type_store,
             static_values,
+            query_catalogue,
             generations,
         };
         allocations.commit_child(composition_budget).map_err(ArtifactError::Allocation)?;
@@ -342,6 +368,7 @@ impl StagedTeloscCompilerWire {
         // A query-image reader is only valid for the exact imported native
         // type/static generation. Enforce that property before returning.
         queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
+        let fingerprints = generation_budget.arc(fingerprints).map_err(ArtifactError::Allocation)?;
         let staged = StagedPackageSemanticGeneration {
             world,
             modules,
@@ -414,6 +441,7 @@ impl StagedTeloscCompilerWire {
         )?;
         queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
 
+        let fingerprints = generation_budget.arc(fingerprints).map_err(ArtifactError::Allocation)?;
         let staged = StagedPackageSemanticGeneration {
             world,
             modules,
@@ -488,6 +516,7 @@ impl StagedTeloscCompilerWire {
         )?;
         queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
 
+        let fingerprints = generation_budget.arc(fingerprints).map_err(ArtifactError::Allocation)?;
         let staged = StagedPackageSemanticGeneration {
             world,
             modules,
