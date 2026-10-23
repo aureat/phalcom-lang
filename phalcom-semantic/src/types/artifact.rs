@@ -1689,8 +1689,9 @@ enum Node {
     Scoped(u32),
     Lambda(u32),
 }
-struct Import<'a, 'b, 'c> {
+struct Import<'a, 'b, 'c, 'd> {
     owner_catalog: Option<&'c crate::artifact::StableOwnerCatalog<'c>>,
+    receiver: Option<&'d mut TypeStore>,
     graph: &'a TypeGraphV1,
     limits: &'a ValidationLimits,
     allocations: &'b mut AllocationBudget,
@@ -1734,10 +1735,11 @@ macro_rules! resolve_node {
         }
     )* };
 }
-impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
+impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
     fn new(
         graph: &'a TypeGraphV1,
         owner_catalog: Option<&'c crate::artifact::StableOwnerCatalog<'c>>,
+        receiver: Option<&'d mut TypeStore>,
         limits: &'a ValidationLimits,
         allocations: &'b mut AllocationBudget,
     ) -> Result<Self, ArtifactError> {
@@ -1774,6 +1776,7 @@ impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
         Ok(Self {
             graph,
             owner_catalog,
+            receiver,
             limits,
             allocations,
             active,
@@ -1802,6 +1805,9 @@ impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
     }
 
     fn kind_of(&self, ty: TypeId) -> Result<KindId, ArtifactError> {
+        if let Some(receiver) = self.receiver.as_deref() {
+            return Ok(receiver.kind_of(ty));
+        }
         self.decoded_type_kinds
             .get(ty.index())
             .and_then(|k| *k)
@@ -1809,6 +1815,9 @@ impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
     }
 
     fn get_type(&self, ty: TypeId) -> Result<&TypeData, ArtifactError> {
+        if let Some(receiver) = self.receiver.as_deref() {
+            return Ok(receiver.get(ty));
+        }
         self.decoded_types
             .get(ty.index())
             .and_then(|t| t.as_ref())
@@ -1816,6 +1825,9 @@ impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
     }
 
     fn get_kind(&self, kind: KindId) -> Result<&KindData, ArtifactError> {
+        if let Some(receiver) = self.receiver.as_deref() {
+            return Ok(receiver.get_kind(kind));
+        }
         self.decoded_kinds
             .get(kind.index())
             .and_then(|k| k.as_ref())
@@ -1823,6 +1835,9 @@ impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
     }
 
     fn type_parameter(&self, parameter: TypeParameterId) -> Result<&TypeParameterData, ArtifactError> {
+        if let Some(receiver) = self.receiver.as_deref() {
+            return Ok(receiver.type_parameter(parameter));
+        }
         self.decoded_parameters
             .get(parameter.index())
             .and_then(|p| p.as_ref())
@@ -1830,6 +1845,9 @@ impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
     }
 
     fn static_constructor(&self, constructor: AlgebraicStaticConstructorId) -> Result<&AlgebraicStaticConstructorData, ArtifactError> {
+        if let Some(receiver) = self.receiver.as_deref() {
+            return receiver.static_constructor(constructor).ok_or_else(|| invalid("referenced static constructor not resolved"));
+        }
         self.decoded_constructors
             .get(constructor.index())
             .and_then(|c| c.as_ref())
