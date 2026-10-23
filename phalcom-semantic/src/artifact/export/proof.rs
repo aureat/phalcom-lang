@@ -7,7 +7,7 @@ use phalcom_compiler_artifact::semantic::world as wire;
 pub(super) fn export_callable_proofs(
     analysis: &crate::checker::analysis::CallableAnalysis,
     ordinals: &CallableAnalysisOrdinalMap,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<
     (
         Option<wire::CallableProofGraphV1>,
@@ -26,7 +26,7 @@ pub(super) fn export_callable_proofs(
         None
     } else {
         Some(wire::CallableProofGraphV1 {
-            owner: to_stable_callable(&analysis.callable),
+            owner: to_stable_callable_with_context(&analysis.callable, types.identity_context()),
             scopes: graph
                 .scopes()
                 .iter()
@@ -44,7 +44,7 @@ pub(super) fn export_callable_proofs(
                         origin: match &rigid.origin {
                             RigidOrigin::Synthetic => wire::CallableRigidOriginV1::Synthetic,
                             RigidOrigin::VariantParameter { variant, parameter } => wire::CallableRigidOriginV1::VariantParameter {
-                                variant: to_stable_variant(variant),
+                                variant: to_stable_variant_with_context(variant, types.identity_context()),
                                 parameter: types.parameter(*parameter)?,
                             },
                         },
@@ -195,10 +195,18 @@ mod tests {
         let first = build(0, true);
         let renamed = build(19, true);
         let shared = build(7, false);
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_1));
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &first, &store).unwrap();
         types.close_graph(&store, &Default::default()).unwrap();
-        let project = |analysis| export_callable_proofs(analysis, &CallableAnalysisOrdinalMap::new(&callable, analysis).unwrap(), &types).unwrap();
+        let project = |analysis| {
+            export_callable_proofs(
+                analysis,
+                &CallableAnalysisOrdinalMap::new(&callable, analysis, types.identity_context()).unwrap(),
+                &types,
+            )
+            .unwrap()
+        };
         assert_eq!(project(&first), project(&renamed));
         assert_ne!(project(&first), project(&shared));
         let fingerprint = crate::db::fingerprint::callable_body_product_fingerprint;
@@ -243,7 +251,8 @@ class Eval { eval<T>(_ value: Expr<T>) { match value { Expr::Wrap(Inner::Boxed(x
             }
         }
         let limits = ValidationLimits::default();
-        let full_types = TypeExportContext::new_full(&snapshot.store).unwrap();
+        let artifact_identity_projects_2 = phalcom_modules::ProjectUniverse::new();
+        let full_types = TypeExportContext::new_full(&snapshot.store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_2)).unwrap();
         let full_record = export_callable_analysis_record(&callable.callable, callable, &authorities, &full_types, &limits).unwrap();
         let full_graph = full_types.project_graph(&snapshot.store, &limits).unwrap();
         let contracts = export_structural_primary_contracts(
@@ -257,7 +266,8 @@ class Eval { eval<T>(_ value: Expr<T>) { match value { Expr::Wrap(Inner::Boxed(x
         )
         .unwrap();
         full_record.validate_proof_authority(&full_graph, &contracts, &limits).unwrap();
-        let mut types = TypeExportContext::new(&snapshot.store);
+        let artifact_identity_projects_3 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&snapshot.store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_3));
         crate::artifact::roots::register_callable_analysis_roots(&mut types, callable, &snapshot.store).unwrap();
         types.close_graph(&snapshot.store, &limits).unwrap();
         let record = export_callable_analysis_record(&callable.callable, callable, &authorities, &types, &limits).unwrap();
@@ -349,11 +359,11 @@ fn usefulness(value: native::PatternUsefulness) -> wire::CallablePatternUsefulne
     }
 }
 
-struct ProofExport<'a> {
-    types: &'a TypeExportContext,
-    ordinals: &'a CallableAnalysisOrdinalMap,
+struct ProofExport<'borrow, 'identity> {
+    types: &'borrow TypeExportContext<'identity>,
+    ordinals: &'borrow CallableAnalysisOrdinalMap,
 }
-impl ProofExport<'_> {
+impl ProofExport<'_, '_> {
     fn local(&mut self, term: &FrozenLocalType) -> Result<wire::CallableLocalTypeV1, ArtifactError> {
         Ok(match term {
             LocalType::Canonical(ty) => wire::CallableLocalTypeV1::Canonical { ty: self.types.ty(*ty)? },
@@ -363,7 +373,7 @@ impl ProofExport<'_> {
                 arguments: arguments.iter().map(|term| self.local(term)).collect::<Result<_, _>>()?,
             },
             LocalType::ExactCase { variant, enum_type } => wire::CallableLocalTypeV1::ExactCase {
-                variant: to_stable_variant(variant),
+                variant: to_stable_variant_with_context(variant, self.types.identity_context()),
                 enum_type: Box::new(self.local(enum_type)?),
             },
             LocalType::Union(terms) => wire::CallableLocalTypeV1::Union {
@@ -493,7 +503,7 @@ impl ProofExport<'_> {
             .collect::<Result<Vec<_>, ArtifactError>>()?;
         local_rigids.sort_unstable_by_key(|binder| binder.parameter);
         Ok(wire::CallableCaseInstantiationV1 {
-            variant: to_stable_variant(&case.variant),
+            variant: to_stable_variant_with_context(&case.variant, self.types.identity_context()),
             scope: case.scope.0,
             local_rigids,
             payload_types: case.payload_types.iter().map(|term| self.local(term)).collect::<Result<_, _>>()?,
@@ -538,14 +548,21 @@ impl ProofExport<'_> {
                 knowledge: export_type_knowledge(knowledge, self.types)?,
             },
             P::Variant(variant) => wire::CallablePatternV1::Variant {
-                owner: variant.owner.as_ref().map(to_stable_declaration),
+                owner: variant
+                    .owner
+                    .as_ref()
+                    .map(|owner| to_stable_declaration_with_context(owner, self.types.identity_context())),
                 family: variant.family.as_ref().map(|family| wire::AssociatedFamilyIdentityV1 {
-                    owner: to_stable_declaration(&family.owner),
+                    owner: to_stable_declaration_with_context(&family.owner, self.types.identity_context()),
                     selector: TypeMemberSelectorV1::Named {
                         name: family.base_name.to_string(),
                     },
                 }),
-                owner_candidates: variant.owner_candidates.iter().map(to_stable_declaration).collect(),
+                owner_candidates: variant
+                    .owner_candidates
+                    .iter()
+                    .map(|owner| to_stable_declaration_with_context(owner, self.types.identity_context()))
+                    .collect(),
                 selector: match &variant.selector {
                     native::VariantSelectorConstraint::Exact(selector) => wire::CallableVariantSelectorV1::Exact {
                         selector: export_exact_selector(selector),
@@ -560,14 +577,14 @@ impl ProofExport<'_> {
                     .iter()
                     .map(|candidate| {
                         Ok(wire::CallableVariantCandidateV1 {
-                            variant: to_stable_variant(&candidate.variant),
+                            variant: to_stable_variant_with_context(&candidate.variant, self.types.identity_context()),
                             exact_case: self.types.ty(candidate.exact_case)?,
                             fields: candidate
                                 .fields
                                 .iter()
                                 .map(|field| {
                                     Ok(wire::CallableFieldPatternV1 {
-                                        variant: to_stable_variant(&field.field.variant),
+                                        variant: to_stable_variant_with_context(&field.field.variant, self.types.identity_context()),
                                         field: field.field.index,
                                         field_type: export_type_knowledge(&field.field_type, self.types)?,
                                         local_type: field.local_type.as_ref().map(|term| self.local(term)).transpose()?,
@@ -644,7 +661,7 @@ impl ProofExport<'_> {
                 elements: elements.iter().map(|space| self.space(space)).collect::<Result<_, _>>()?,
             },
             S::Variant { variant, exact_case, fields } => wire::CallablePatternSpaceV1::Variant {
-                variant: to_stable_variant(variant),
+                variant: to_stable_variant_with_context(variant, self.types.identity_context()),
                 exact_case: self.types.ty(*exact_case)?,
                 fields: fields.iter().map(|space| self.space(space)).collect::<Result<_, _>>()?,
             },
@@ -663,7 +680,7 @@ impl ProofExport<'_> {
                 elements: elements.iter().map(|witness| self.witness(witness)).collect::<Result<_, _>>()?,
             },
             W::Variant { variant, exact_case, fields } => wire::CallableCoverageWitnessV1::Variant {
-                variant: to_stable_variant(variant),
+                variant: to_stable_variant_with_context(variant, self.types.identity_context()),
                 exact_case: self.types.ty(*exact_case)?,
                 fields: fields.iter().map(|witness| self.witness(witness)).collect::<Result<_, _>>()?,
             },

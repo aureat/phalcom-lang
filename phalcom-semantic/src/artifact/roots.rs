@@ -2,7 +2,10 @@
 use super::export::register_structural_primary_roots_scoped;
 use super::projection::{ArtifactProjectionScope, ArtifactSemanticProjection};
 use crate::declaration_type::{DeclaredTypeFact, DeclaredTypeState};
-use crate::metadata::stable_identity::{to_stable_callable, to_stable_declaration, to_stable_impl, to_stable_module, to_stable_variant};
+use crate::metadata::stable_identity::{
+    to_stable_callable_with_context, to_stable_declaration_with_context, to_stable_impl_with_context, to_stable_module_with_context,
+    to_stable_variant_with_context,
+};
 use crate::snapshot::SemanticSnapshot;
 use crate::static_value::StaticExportContext;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeTerm};
@@ -11,28 +14,28 @@ use phalcom_compiler_artifact::semantic::type_store::{CanonicalRootFamilyTag as 
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
 use std::collections::BTreeMap;
 
-struct Roots<'a> {
-    types: &'a mut TypeExportContext,
+struct Roots<'borrow, 'identity> {
+    types: &'borrow mut TypeExportContext<'identity>,
     owner: StableOwnerRef,
     family: Family,
     ordinal: u32,
-    store: Option<&'a crate::types::store::TypeStore>,
+    store: Option<&'borrow crate::types::store::TypeStore>,
 }
 
 pub(super) fn register_callable_signature_roots(
-    types: &mut TypeExportContext,
+    types: &mut TypeExportContext<'_>,
     signature: &crate::signature::CallableSemanticSignature,
 ) -> Result<(), ArtifactError> {
     let mut roots = Roots::new(
         types,
-        StableOwnerRef::Callable(to_stable_callable(&signature.callable)),
+        StableOwnerRef::Callable(to_stable_callable_with_context(&signature.callable, types.identity_context())),
         Family::CallableSignature,
     );
     roots.callable_signature(signature)
 }
 
 pub(super) fn register_callable_definition_roots(
-    types: &mut TypeExportContext,
+    types: &mut TypeExportContext<'_>,
     definition: &crate::impls::EffectiveCallableDefinition,
 ) -> Result<(), ArtifactError> {
     if definition.callable != definition.signature.callable {
@@ -40,7 +43,7 @@ pub(super) fn register_callable_definition_roots(
     }
     let mut roots = Roots::new(
         types,
-        StableOwnerRef::Callable(to_stable_callable(&definition.callable)),
+        StableOwnerRef::Callable(to_stable_callable_with_context(&definition.callable, types.identity_context())),
         Family::CallableDefinition,
     );
     roots.callable_signature(&definition.signature)?;
@@ -68,13 +71,13 @@ pub(super) fn register_callable_definition_roots(
 /// Registers type and row roots carried by already-selected call specializations.
 /// Dynamic arguments intentionally add no proper-type root.
 pub(super) fn register_callable_analysis_roots(
-    types: &mut TypeExportContext,
+    types: &mut TypeExportContext<'_>,
     analysis: &crate::checker::analysis::CallableAnalysis,
     store: &crate::types::store::TypeStore,
 ) -> Result<(), ArtifactError> {
     let mut roots = Roots::new(
         types,
-        StableOwnerRef::Callable(to_stable_callable(&analysis.callable)),
+        StableOwnerRef::Callable(to_stable_callable_with_context(&analysis.callable, types.identity_context())),
         Family::CallableAnalysis,
     );
     roots.store = Some(store);
@@ -209,11 +212,11 @@ pub(super) fn register_callable_analysis_roots(
     Ok(())
 }
 
-impl<'a> Roots<'a> {
-    fn new(types: &'a mut TypeExportContext, owner: StableOwnerRef, family: Family) -> Self {
+impl<'borrow, 'identity> Roots<'borrow, 'identity> {
+    fn new(types: &'borrow mut TypeExportContext<'identity>, owner: StableOwnerRef, family: Family) -> Self {
         Self::new_with_ordinal(types, owner, family, 100)
     }
-    fn new_with_ordinal(types: &'a mut TypeExportContext, owner: StableOwnerRef, family: Family, ordinal: u32) -> Self {
+    fn new_with_ordinal(types: &'borrow mut TypeExportContext<'identity>, owner: StableOwnerRef, family: Family, ordinal: u32) -> Self {
         Self {
             types,
             owner,
@@ -1188,11 +1191,11 @@ impl<'a> Roots<'a> {
 /// use [`register_semantic_world_roots_scoped`] instead.
 pub fn register_semantic_world_roots(
     snapshot: &SemanticSnapshot,
-    types: &mut TypeExportContext,
+    types: &mut TypeExportContext<'_>,
     statics: &mut StaticExportContext,
 ) -> Result<(), ArtifactError> {
     let scope = ArtifactProjectionScope::whole_image();
-    register_semantic_world_roots_scoped(ArtifactSemanticProjection::new(snapshot, &scope), types, statics)
+    register_semantic_world_roots_scoped(ArtifactSemanticProjection::new(snapshot, &scope, *types.identity_context()), types, statics)
 }
 
 /// Register the roots of exactly the primary rows the projection's scope owns.
@@ -1203,7 +1206,7 @@ pub fn register_semantic_world_roots(
 /// and the wire projection must select rows through the same scope.
 pub fn register_semantic_world_roots_scoped(
     projection: ArtifactSemanticProjection<'_>,
-    types: &mut TypeExportContext,
+    types: &mut TypeExportContext<'_>,
     statics: &mut StaticExportContext,
 ) -> Result<(), ArtifactError> {
     let snapshot = projection.snapshot();
@@ -1221,13 +1224,13 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_declaration(id) {
             continue;
         }
-        Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::GenericSignature).generic(&info.generic_signature)?;
+        Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration_with_context(id, types.identity_context())), Family::GenericSignature).generic(&info.generic_signature)?;
     }
     for (id, info) in snapshot.data_semantics.data_decls.iter() {
         if !scope.owns_declaration(id) {
             continue;
         }
-        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::DataContract);
+        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration_with_context(id, types.identity_context())), Family::DataContract);
         r.generic(&info.generic_signature)?;
         r.static_data(&info.static_data)?;
         for c in &info.components {
@@ -1248,7 +1251,7 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_declaration(id) {
             continue;
         }
-        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::EnumContract);
+        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration_with_context(id, types.identity_context())), Family::EnumContract);
         r.generic(&info.generic_signature)?;
         r.static_data(&info.static_data)?;
         r.ty(info.default_result_type)?;
@@ -1257,7 +1260,7 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_variant(id) {
             continue;
         }
-        let mut r = Roots::new(types, StableOwnerRef::Variant(to_stable_variant(id)), Family::VariantContract);
+        let mut r = Roots::new(types, StableOwnerRef::Variant(to_stable_variant_with_context(id, types.identity_context())), Family::VariantContract);
         for f in &info.fields {
             r.fact(&f.declared_type)?;
         }
@@ -1325,7 +1328,7 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_impl(id) {
             continue;
         }
-        let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(id)), Family::TraitAndConformance);
+        let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl_with_context(id, types.identity_context())), Family::TraitAndConformance);
         r.ty(head.target_head)?;
         r.generic(&head.generic_signature)?;
         for &ty in &head.trait_ref.arguments {
@@ -1336,7 +1339,7 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_declaration(decl_id) {
             continue;
         }
-        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(decl_id)), Family::SurfaceAndDispatch);
+        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration_with_context(decl_id, types.identity_context())), Family::SurfaceAndDispatch);
         for (_, field_sig) in snapshot.field_signatures.iter_owner(decl_id) {
             r.fact(&field_sig.declared_type)?;
         }
@@ -1351,7 +1354,7 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_declaration(id) {
             continue;
         }
-        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration(id)), Family::TraitAndConformance);
+        let mut r = Roots::new(types, StableOwnerRef::Declaration(to_stable_declaration_with_context(id, types.identity_context())), Family::TraitAndConformance);
         r.generic(&surface.generic_signature)?;
         for (_, member) in surface.iter() {
             r.callable_signature(&member.signature)?;
@@ -1398,7 +1401,7 @@ pub fn register_semantic_world_roots_scoped(
             }
             match impl_roots.entry(member.impl_id.clone()) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    let mut roots = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&member.impl_id)), Family::SurfaceAndDispatch);
+                    let mut roots = Roots::new(types, StableOwnerRef::Impl(to_stable_impl_with_context(&member.impl_id, types.identity_context())), Family::SurfaceAndDispatch);
                     roots.inherent_impl_domain(&member.domain)?;
                     entry.insert((member.domain.as_ref(), roots.next_ordinal()));
                 }
@@ -1416,7 +1419,7 @@ pub fn register_semantic_world_roots_scoped(
                 .ok_or_else(|| ArtifactError::LimitExceeded("conditional inherent member has no root owner".into()))?;
             let mut roots = Roots::new_with_ordinal(
                 types,
-                StableOwnerRef::Impl(to_stable_impl(&member.impl_id)),
+                StableOwnerRef::Impl(to_stable_impl_with_context(&member.impl_id, types.identity_context())),
                 Family::SurfaceAndDispatch,
                 *next_ordinal,
             );
@@ -1429,7 +1432,7 @@ pub fn register_semantic_world_roots_scoped(
             continue;
         }
         let owner = phalcom_type_meta::identity::StableTypeMemberRef {
-            owner: to_stable_declaration(&id.owner),
+            owner: to_stable_declaration_with_context(&id.owner, types.identity_context()),
             selector: id.selector.name().into(),
         };
         let mut r = Roots::new(types, StableOwnerRef::TypeMember(owner), Family::TypeMemberAndDomain);
@@ -1455,7 +1458,7 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_associated_static_domain(id) {
             continue;
         }
-        let owner = StableOwnerRef::Declaration(to_stable_declaration(&id.owner));
+        let owner = StableOwnerRef::Declaration(to_stable_declaration_with_context(&id.owner, types.identity_context()));
         let key = CanonicalTypeRootKey {
             family_tag: Family::TypeMemberAndDomain,
             owner: owner.clone(),
@@ -1498,7 +1501,7 @@ pub fn register_semantic_world_roots_scoped(
                 .ok_or_else(|| ValidationError::ReferentialIntegrity("static-case catalog has no interned nominal domain root".into()))?;
             let key = CanonicalTypeRootKey {
                 family_tag: Family::TypeMemberAndDomain,
-                owner: StableOwnerRef::Declaration(to_stable_declaration(owner)),
+                owner: StableOwnerRef::Declaration(to_stable_declaration_with_context(owner, types.identity_context())),
                 product_subkey: associated_domain_ordinal,
             };
             associated_domain_ordinal = associated_domain_ordinal
@@ -1521,7 +1524,7 @@ pub fn register_semantic_world_roots_scoped(
         for &kind in signature.parameter_kinds.iter() {
             let key = CanonicalTypeRootKey {
                 family_tag: Family::TypeMemberAndDomain,
-                owner: StableOwnerRef::Declaration(to_stable_declaration(owner)),
+                owner: StableOwnerRef::Declaration(to_stable_declaration_with_context(owner, types.identity_context())),
                 product_subkey: associated_domain_ordinal,
             };
             associated_domain_ordinal = associated_domain_ordinal
@@ -1537,7 +1540,7 @@ pub fn register_semantic_world_roots_scoped(
         if id != &plan.impl_id {
             return Err(ArtifactError::LimitExceeded("conformance witness table key disagrees with its owner".into()));
         }
-        let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(id)), Family::ConstructorContract);
+        let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl_with_context(id, types.identity_context())), Family::ConstructorContract);
         r.store = Some(&snapshot.store);
         r.ty(plan.target_template)?;
         r.generic(&plan.generic_signature)?;
@@ -1560,7 +1563,7 @@ pub fn register_semantic_world_roots_scoped(
         if !scope.owns_impl(&rule.impl_id) {
             continue;
         }
-        let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(&rule.impl_id)), Family::TraitAndConformance);
+        let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl_with_context(&rule.impl_id, types.identity_context())), Family::TraitAndConformance);
         r.store = Some(&snapshot.store);
         r.derived_conformance_rule(rule)?;
     }
@@ -1569,7 +1572,7 @@ pub fn register_semantic_world_roots_scoped(
             continue;
         }
         if let Some(program) = &product.canonical_program {
-            let owner = StableOwnerRef::Declaration(to_stable_declaration(&program.owner.0));
+            let owner = StableOwnerRef::Declaration(to_stable_declaration_with_context(&program.owner.0, types.identity_context()));
             let next_ordinal = super::operational::register_operational_template_roots(program, statics, types)?;
             let mut roots = Roots::new_with_ordinal(types, owner, Family::StaticDefAndBinding, next_ordinal);
             for application in program.applications.iter() {
@@ -1588,7 +1591,7 @@ pub fn register_semantic_world_roots_scoped(
                 roots.semantic_diagnostic(diagnostic)?;
             }
         } else if let Some(body) = &product.checked_body {
-            let owner = StableOwnerRef::Declaration(to_stable_declaration(&body.owner.0));
+            let owner = StableOwnerRef::Declaration(to_stable_declaration_with_context(&body.owner.0, types.identity_context()));
             let mut next_ordinal = 0;
             if let crate::static_definition::StaticDefinitionBodyRepr::Operational(program) = &body.root {
                 next_ordinal = super::operational::register_operational_template_roots(program, statics, types)?;
@@ -1632,7 +1635,7 @@ pub fn register_semantic_world_roots_scoped(
                 "static constant persistent authority disagrees with its source product".into(),
             ));
         }
-        let stable_module = to_stable_module(&id.0.module);
+        let stable_module = to_stable_module_with_context(&id.0.module, types.identity_context());
         let ordinal = static_constant_ordinals.entry(stable_module.clone()).or_default();
         let base = *ordinal;
         let after_values = base
@@ -1673,7 +1676,7 @@ pub fn register_semantic_world_roots_scoped(
         if module != index.module() {
             return Err(ArtifactError::LimitExceeded("module static-binding index key disagrees with its owner".into()));
         }
-        let mut roots = Roots::new(types, StableOwnerRef::Module(to_stable_module(module)), Family::StaticDefAndBinding);
+        let mut roots = Roots::new(types, StableOwnerRef::Module(to_stable_module_with_context(module, types.identity_context())), Family::StaticDefAndBinding);
         roots.store = Some(&snapshot.store);
         for (_, fact) in index.iter() {
             if fact.state.binding != fact.source_binding || fact.source_body.module() != &fact.symbol.module {
@@ -1691,7 +1694,6 @@ pub fn register_semantic_world_roots_scoped(
 mod tests {
     use super::{
         Family, Roots, StableOwnerRef, register_callable_analysis_roots, register_callable_definition_roots, register_callable_signature_roots,
-        to_stable_declaration,
     };
     use crate::checker::analysis::{BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};
     use crate::identity::{
@@ -1790,7 +1792,8 @@ mod tests {
             }),
         };
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_1));
         register_callable_signature_roots(&mut types, &surface_signature).unwrap();
         register_callable_definition_roots(&mut types, &definition).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
@@ -1949,7 +1952,8 @@ mod tests {
             .unwrap();
         analysis.explanations = Arc::new(explanations);
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_2 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_2));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -1981,7 +1985,8 @@ mod tests {
             )
             .unwrap();
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_3 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_3));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2011,7 +2016,8 @@ mod tests {
             )
             .unwrap();
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_4 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_4));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2052,7 +2058,8 @@ mod tests {
             )
             .unwrap();
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_5 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_5));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2112,7 +2119,8 @@ mod tests {
             direct_result_dependency: None,
         });
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_6 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_6));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2175,7 +2183,8 @@ mod tests {
             .collect(),
         );
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_7 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_7));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2218,7 +2227,8 @@ mod tests {
             .collect(),
         );
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_8 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_8));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2270,7 +2280,8 @@ mod tests {
             .collect(),
         );
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_9 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_9));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2377,7 +2388,8 @@ mod tests {
             .collect(),
         );
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_10 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_10));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2479,8 +2491,13 @@ mod tests {
             nested: Box::new([]),
         }));
 
-        let mut types = TypeExportContext::new(&store);
-        let mut roots = Roots::new(&mut types, StableOwnerRef::Declaration(to_stable_declaration(&owner)), Family::CallableAnalysis);
+        let artifact_identity_projects_11 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_11));
+        let mut roots = Roots::new(
+            &mut types,
+            StableOwnerRef::Declaration(crate::metadata::stable_identity::to_stable_declaration(&owner)),
+            Family::CallableAnalysis,
+        );
         roots.generic_conformance_evidence(&GenericConformanceEvidence::Exact(exact)).unwrap();
         roots.generic_conformance_evidence(&assumed).unwrap();
         roots.generic_conformance_evidence(&derived).unwrap();
@@ -2603,7 +2620,8 @@ mod tests {
 
         let mut analysis = callable_analysis(callable);
         analysis.expressions.insert_source(expression_id, expression).unwrap();
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_12 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_12));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2692,10 +2710,11 @@ mod tests {
             .into_boxed_slice(),
         };
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_13 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_13));
         let mut roots = Roots::new(
             &mut types,
-            StableOwnerRef::Declaration(to_stable_declaration(&body_owner)),
+            StableOwnerRef::Declaration(crate::metadata::stable_identity::to_stable_declaration(&body_owner)),
             Family::StaticDefAndBinding,
         );
         let wrong_body = StaticBodyId(DeclarationId::new(ModuleId::universe_root(), "DifferentStaticBodyOwner".into()));
@@ -2842,7 +2861,8 @@ mod tests {
             .collect(),
         );
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_14 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_14));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -2986,7 +3006,8 @@ mod tests {
 
         let mut analysis = callable_analysis(callable);
         analysis.expressions.insert_source(expression_id, expression).unwrap();
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_15 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_15));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -3062,7 +3083,8 @@ mod tests {
         analysis.diagnostics = Arc::from([diagnostic]);
         analysis.semantic_dependencies = Arc::from([crate::checker::analysis::SemanticDependency::GenericConformance(key)]);
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_16 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_16));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -3146,7 +3168,8 @@ mod tests {
                 .unwrap();
         }
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_17 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_17));
         register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &phalcom_compiler_artifact::ValidationLimits::default()).unwrap();
 
@@ -3182,7 +3205,8 @@ mod tests {
             .unwrap();
 
         let store = TypeStore::new();
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_18 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_18));
         assert!(
             register_callable_analysis_roots(&mut types, &analysis, &store).is_err(),
             "static applications stay blocked until checked rows have a retained, body-qualified owner"
@@ -3211,7 +3235,8 @@ mod tests {
         analysis.expressions.insert_source(expression_id, expression).unwrap();
 
         let store = TypeStore::new();
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_19 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_19));
         assert!(
             register_callable_analysis_roots(&mut types, &analysis, &store).is_err(),
             "a stable query identity absent from the source type store cannot be fabricated during export"

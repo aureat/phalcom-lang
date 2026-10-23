@@ -10,6 +10,10 @@ pub const DOMAIN_QUERY_IMAGE: &str = "telos.telosc.v1.query-image";
 pub const DOMAIN_METADATA: &str = "telos.telosc.v1.metadata";
 pub const DOMAIN_ARTIFACT: &str = "telos.telosc.v1.artifact";
 pub const DOMAIN_SECTION: &str = "telos.telosc.v1.section";
+/// Domain for package identities computed before the package artifact exists.
+pub const DOMAIN_PACKAGE_IDENTITY: &str = "phalcom.telosc.package-identity.v1";
+/// Domain for package-owned source provenance independent of checkout paths.
+pub const DOMAIN_PACKAGE_SOURCE: &str = "phalcom.telosc.package-source.v1";
 
 /// 256-bit cryptographic / integrity digest for artifacts and sections.
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]

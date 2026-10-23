@@ -5,7 +5,7 @@ use super::import::{
     import_stable_selector_with_allocation_budget,
 };
 use crate::identity::VariantId;
-use crate::metadata::stable_identity::{to_stable_declaration, to_stable_module};
+use crate::metadata::stable_identity::{to_stable_declaration_with_context, to_stable_module_with_context};
 use crate::static_definition::{
     CanonicalCheckedStaticApplication, CanonicalStaticApplicationArgument, CanonicalStaticProgram, CheckedStaticApplication, CheckedStaticApplicationArgument,
     CheckedStaticBody, OperationalNode, OperationalTarget, OperationalTemplate, StaticBinaryOp, StaticBodyId, StaticDefinitionBodyRepr,
@@ -545,7 +545,10 @@ pub fn register_operational_template_roots(
         }
         Ok(())
     }
-    let owner = phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Declaration(to_stable_declaration(&template.owner.0));
+    let owner = phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Declaration(to_stable_declaration_with_context(
+        &template.owner.0,
+        type_context.identity_context(),
+    ));
     let mut ordinal = 0;
     walk(&template.root, static_context, type_context, &owner, &mut ordinal)?;
     Ok(ordinal)
@@ -582,28 +585,32 @@ fn export_unary_op(op: StaticUnaryOp) -> StaticUnaryOpV1 {
     }
 }
 
-fn export_target(target: &OperationalTarget) -> OperationalTargetV1 {
+fn export_target(target: &OperationalTarget, type_context: &TypeExportContext<'_>) -> OperationalTargetV1 {
     match target {
         OperationalTarget::Declaration(decl) => OperationalTargetV1::Declaration {
-            target: to_stable_declaration(decl),
+            target: to_stable_declaration_with_context(decl, type_context.identity_context()),
         },
         OperationalTarget::DataConstructor(owner) => OperationalTargetV1::DataConstructor {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, type_context.identity_context()),
         },
         OperationalTarget::VariantConstructor(variant) => OperationalTargetV1::VariantConstructor {
-            owner: to_stable_declaration(&variant.owner),
+            owner: to_stable_declaration_with_context(&variant.owner, type_context.identity_context()),
             selector: variant.selector.encode().into_boxed_str(),
         },
     }
 }
 
-fn export_op(node: &OperationalNode, static_context: &StaticExportContext, type_context: &TypeExportContext) -> Result<OperationalOpV1, ArtifactError> {
+fn export_op(
+    node: &OperationalNode,
+    static_context: &StaticExportContext,
+    type_context: &TypeExportContext<'_>,
+) -> Result<OperationalOpV1, ArtifactError> {
     Ok(match node {
         OperationalNode::Constant(val) => OperationalOpV1::Constant {
             value: static_context.value(*val)?,
         },
         OperationalNode::ReadStaticConstant(symbol) => OperationalOpV1::ReadStaticConstant {
-            module: to_stable_module(&symbol.module),
+            module: to_stable_module_with_context(&symbol.module, type_context.identity_context()),
             name: symbol.name.to_string(),
         },
         OperationalNode::ReadParameter(index) => OperationalOpV1::ReadParameter { index: *index },
@@ -652,7 +659,7 @@ fn export_op(node: &OperationalNode, static_context: &StaticExportContext, type_
             result_type,
             arguments,
         } => OperationalOpV1::StaticConstruction {
-            target: export_target(target),
+            target: export_target(target, type_context),
             result_type: type_context.ty(*result_type)?,
             arguments: arguments
                 .iter()
@@ -982,7 +989,7 @@ pub(crate) fn export_canonical_static_program(
             Ok(CanonicalCheckedStaticApplicationV1 {
                 ordinal: application.id.ordinal,
                 source: export_source_range(application.source_range)?,
-                target: to_stable_declaration(&application.target),
+                target: to_stable_declaration_with_context(&application.target, type_context.identity_context()),
                 signature: export_static_definition_signature(&application.signature, type_context)?,
                 arguments,
             })
@@ -992,12 +999,12 @@ pub(crate) fn export_canonical_static_program(
         .static_constant_reads
         .iter()
         .map(|symbol| StaticConstantSymbolV1 {
-            module: to_stable_module(&symbol.module),
+            module: to_stable_module_with_context(&symbol.module, type_context.identity_context()),
             name: symbol.name.clone(),
         })
         .collect();
     Ok(CanonicalStaticProgramV1 {
-        owner: to_stable_declaration(&program.owner.0),
+        owner: to_stable_declaration_with_context(&program.owner.0, type_context.identity_context()),
         parameter_count: program.parameter_count,
         local_count: program.local_count,
         root: export_op(&program.root, static_context, type_context)?,

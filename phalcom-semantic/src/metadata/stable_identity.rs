@@ -9,7 +9,7 @@ use phalcom_type_meta::identity::{
     StableVariantRef,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct StableIdentityContext<'a> {
     pub projects: &'a ProjectUniverse,
     query_fingerprint: bool,
@@ -17,6 +17,7 @@ pub struct StableIdentityContext<'a> {
 }
 
 impl<'a> StableIdentityContext<'a> {
+    /// Creates artifact identity authority from the project's resolved project universe.
     pub fn new(projects: &'a ProjectUniverse) -> Self {
         Self {
             projects,

@@ -1,9 +1,13 @@
 //! Portable cross-process package and compatibility identities.
 
-use crate::digest::{ArtifactDigest, ArtifactHasher};
+use crate::codec::BinaryWriter;
+use crate::digest::{ArtifactDigest, ArtifactHasher, DOMAIN_PACKAGE_IDENTITY};
 use crate::error::ValidationError;
+use crate::header::TeloscHeaderV2;
+use crate::module_world::Wire;
 use crate::{ArtifactError, ValidationLimits};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::identity::StableProjectRef;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +16,84 @@ use serde::{Deserialize, Serialize};
 pub enum TeloscPackageIdentity {
     Builtin { namespace: Box<str>, version: Box<str> },
     Package { package: Box<str>, version: Box<str> },
+}
+
+/// The ABI fields included in a stable package identity fingerprint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PackageIdentityAbi {
+    /// Semantic model version carried by the artifact header.
+    pub semantic_model_version: u32,
+    /// Stable identity schema carried by the artifact header.
+    pub stable_identity_schema: u32,
+    /// Module semantic ABI carried by the artifact header.
+    pub module_semantic_abi: u32,
+    /// Semantic artifact ABI carried by the artifact header.
+    pub semantic_artifact_abi: u32,
+    /// Query fingerprint ABI carried by the artifact header.
+    pub query_fingerprint_abi: u32,
+    /// Native surface schema version carried by the artifact header.
+    pub native_surface_schema_version: u32,
+    /// Native catalog fingerprint carried by the artifact header.
+    pub native_catalog_fingerprint: [u8; 16],
+    /// Type metadata schema version carried by the artifact header.
+    pub type_metadata_schema_version: u32,
+}
+
+impl PackageIdentityAbi {
+    /// Copies the identity-relevant ABI fields from an artifact header.
+    pub fn from_header(header: &TeloscHeaderV2) -> Self {
+        Self {
+            semantic_model_version: header.semantic_model_version,
+            stable_identity_schema: header.stable_identity_schema,
+            module_semantic_abi: header.module_semantic_abi,
+            semantic_artifact_abi: header.semantic_artifact_abi,
+            query_fingerprint_abi: header.query_fingerprint_abi,
+            native_surface_schema_version: header.native_surface_schema_version,
+            native_catalog_fingerprint: header.native_catalog_fingerprint,
+            type_metadata_schema_version: header.type_metadata_schema_version,
+        }
+    }
+}
+
+/// Computes the path-free identity fingerprint used by a package while it is being published.
+///
+/// External project references are sorted before encoding. The artifact digest
+/// is intentionally excluded so the identity can be embedded in the artifact
+/// without creating a digest cycle.
+pub fn package_identity_fingerprint(
+    package: &str,
+    version: &str,
+    source_digest: ArtifactDigest,
+    external_projects: &[StableProjectRef],
+    abi: &PackageIdentityAbi,
+) -> Result<Fingerprint128, ArtifactError> {
+    let mut writer = BinaryWriter::digest(DOMAIN_PACKAGE_IDENTITY);
+    writer.write_str(package);
+    writer.write_str(version);
+    writer.write_fixed(source_digest.as_bytes());
+
+    let mut external_projects = external_projects.to_vec();
+    external_projects.sort_unstable();
+    writer.write_u32(
+        u32::try_from(external_projects.len()).map_err(|_| ArtifactError::LimitExceeded("package external project count exceeds wire u32".into()))?,
+    );
+    for project in &external_projects {
+        project.write(&mut writer)?;
+    }
+
+    writer.write_u32(abi.semantic_model_version);
+    writer.write_u32(abi.stable_identity_schema);
+    writer.write_u32(abi.module_semantic_abi);
+    writer.write_u32(abi.semantic_artifact_abi);
+    writer.write_u32(abi.query_fingerprint_abi);
+    writer.write_u32(abi.native_surface_schema_version);
+    writer.write_fixed(&abi.native_catalog_fingerprint);
+    writer.write_u32(abi.type_metadata_schema_version);
+
+    let digest = writer.into_digest();
+    let mut fingerprint = [0u8; 16];
+    fingerprint.copy_from_slice(&digest.as_bytes()[..16]);
+    Ok(Fingerprint128(fingerprint))
 }
 
 impl TeloscPackageIdentity {

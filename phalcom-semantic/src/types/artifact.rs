@@ -2,7 +2,9 @@
 use super::*;
 use crate::field_key::FieldKey;
 use crate::identity::{AssociatedStaticDomainDeclarationId, CallableId, CallableOwnerId};
-use crate::metadata::stable_identity::*;
+use crate::metadata::stable_identity::{
+    StableIdentityContext, to_stable_callable_with_context, to_stable_declaration_with_context, to_stable_dispatch_side, to_stable_impl_with_context,
+};
 use crate::types::family::FamilyOperationShape;
 use crate::types::id::ScopedTypeId;
 use crate::types::parameter::{GenericParameterMode, SelfRole};
@@ -74,31 +76,41 @@ enum TypeGraphRoot {
 }
 
 /// Guarded export context shared across all artifact sections.
-pub struct TypeExportContext {
+pub struct TypeExportContext<'identity> {
     expected_lineage: TypeStoreLineageId,
     closed: bool,
-    ids: Option<ExportIds>,
+    ids: Option<ExportIds<'identity>>,
     sorted_roots: BTreeMap<CanonicalTypeRootKey, TypeGraphRoot>,
+    identity: StableIdentityContext<'identity>,
 }
 
-impl TypeExportContext {
-    pub fn new(store: &TypeStore) -> Self {
+impl<'identity> TypeExportContext<'identity> {
+    /// Creates a type projection bound to `store` and its stable owner authority.
+    pub fn new(store: &TypeStore, identity: StableIdentityContext<'identity>) -> Self {
         Self {
             expected_lineage: TypeStoreLineageId(store.id().raw()),
             closed: false,
             ids: None,
             sorted_roots: BTreeMap::new(),
+            identity,
         }
     }
 
-    pub fn new_full(store: &TypeStore) -> Result<Self, ArtifactError> {
-        let ids = ExportIds::new_full(store)?;
+    /// Creates a full type projection using the caller's stable owner authority.
+    pub fn new_full(store: &TypeStore, identity: StableIdentityContext<'identity>) -> Result<Self, ArtifactError> {
+        let ids = ExportIds::new_full(store, identity)?;
         Ok(Self {
             expected_lineage: TypeStoreLineageId(store.id().raw()),
             closed: true,
             ids: Some(ids),
             sorted_roots: BTreeMap::new(),
+            identity,
         })
+    }
+
+    /// Returns the stable owner authority for this graph projection.
+    pub fn identity_context(&self) -> &StableIdentityContext<'identity> {
+        &self.identity
     }
 
     pub fn expected_lineage(&self) -> TypeStoreLineageId {
@@ -184,7 +196,7 @@ impl TypeExportContext {
         if self.closed {
             return Err(TypeArtifactError::GraphAlreadyClosed.into());
         }
-        let ids = ExportIds::from_roots(store, &self.sorted_roots, limits)?;
+        let ids = ExportIds::from_roots(store, &self.sorted_roots, limits, self.identity)?;
         self.ids = Some(ids);
         self.closed = true;
         Ok(())
@@ -194,7 +206,7 @@ impl TypeExportContext {
         self.closed
     }
 
-    fn ids(&self) -> Result<&ExportIds, ArtifactError> {
+    fn ids(&self) -> Result<&ExportIds<'_>, ArtifactError> {
         self.ids.as_ref().ok_or_else(|| TypeArtifactError::GraphNotClosed.into())
     }
 
@@ -256,7 +268,8 @@ impl TypeExportContext {
     }
 }
 
-struct ExportIds {
+struct ExportIds<'identity> {
+    identity: StableIdentityContext<'identity>,
     types: BTreeMap<TypeId, ArtifactTypeId>,
     kinds: BTreeMap<KindId, ArtifactKindId>,
     parameters: BTreeMap<TypeParameterId, ArtifactTypeParameterId>,
@@ -293,10 +306,11 @@ macro_rules! export_lookup {
         fn $method(&self, value: $native) -> Result<$wire, ArtifactError> { self.$field.get(&value).copied().ok_or_else(|| invalid(concat!("unregistered ", stringify!($field), " reference"))) }
     )* };
 }
-impl ExportIds {
-    fn new_full(store: &TypeStore) -> Result<Self, ArtifactError> {
+impl<'identity> ExportIds<'identity> {
+    fn new_full(store: &TypeStore, identity: StableIdentityContext<'identity>) -> Result<Self, ArtifactError> {
         let (scoped_count, lambda_count) = store.lambda_arena.artifact_counts();
         Ok(Self {
+            identity,
             types: export_map!(store.types.len(), TypeId, ArtifactTypeId),
             kinds: export_map!(store.kinds.len(), KindId, ArtifactKindId),
             parameters: export_map!(store.type_parameters.len(), TypeParameterId, ArtifactTypeParameterId),
@@ -322,8 +336,9 @@ impl ExportIds {
         })
     }
 
-    fn empty() -> Self {
+    fn empty(identity: StableIdentityContext<'identity>) -> Self {
         Self {
+            identity,
             types: BTreeMap::new(),
             kinds: BTreeMap::new(),
             parameters: BTreeMap::new(),
@@ -347,14 +362,19 @@ impl ExportIds {
         }
     }
 
-    fn from_roots(store: &TypeStore, roots: &BTreeMap<CanonicalTypeRootKey, TypeGraphRoot>, limits: &ValidationLimits) -> Result<Self, ArtifactError> {
-        let mut walker = ExportGraphWalker::new(store, limits);
+    fn from_roots(
+        store: &TypeStore,
+        roots: &BTreeMap<CanonicalTypeRootKey, TypeGraphRoot>,
+        limits: &ValidationLimits,
+        identity: StableIdentityContext<'identity>,
+    ) -> Result<Self, ArtifactError> {
+        let mut walker = ExportGraphWalker::new(store, limits, identity);
         walker.visit_builtin_seed()?;
         let mut all_roots = roots.clone();
         for ((owner, index), parameter) in store.parameter_to_id.iter() {
             let key = CanonicalTypeRootKey {
                 family_tag: CanonicalRootFamilyTag::ParameterCurrentSlot,
-                owner: stable_parameter_owner(owner)?,
+                owner: stable_parameter_owner(owner, &identity)?,
                 product_subkey: *index,
             };
             let root = TypeGraphRoot::Parameter(*parameter);
@@ -447,10 +467,10 @@ impl ExportIds {
             TypeData::Never => TypeV1::Never,
             TypeData::Unit => TypeV1::Unit,
             TypeData::ClassObject { declaration } => TypeV1::ClassObject {
-                declaration: declaration_out(declaration)?,
+                declaration: declaration_out(declaration, &self.identity)?,
             },
             TypeData::Nominal { declaration } => TypeV1::Nominal {
-                declaration: declaration_out(declaration)?,
+                declaration: declaration_out(declaration, &self.identity)?,
             },
             TypeData::StaticDomainForm { domain } => TypeV1::StaticDomainForm { domain: self.domain(*domain)? },
             TypeData::Applied { origin, arguments } => TypeV1::Applied {
@@ -527,7 +547,7 @@ impl ExportIds {
             TypeData::Lambda(lambda) => TypeV1::Lambda { lambda: self.lambda(*lambda)? },
             TypeData::SelfType(value) => TypeV1::SelfType {
                 self_type: SelfTypeV1 {
-                    owner: declaration_out(&value.owner)?,
+                    owner: declaration_out(&value.owner, &self.identity)?,
                     side: to_stable_dispatch_side(value.side),
                     role: match value.role {
                         SelfRole::InstanceType => SelfRoleV1::InstanceType,
@@ -538,9 +558,9 @@ impl ExportIds {
             TypeData::AssociatedProjection(value) => TypeV1::AssociatedProjection {
                 projection: AssociatedProjectionV1 {
                     subject: self.ty(value.subject)?,
-                    trait_owner: declaration_out(&value.trait_ref.declaration)?,
+                    trait_owner: declaration_out(&value.trait_ref.declaration, &self.identity)?,
                     trait_arguments: self.types(&value.trait_ref.arguments)?,
-                    requirement_owner: declaration_out(&value.requirement.owner)?,
+                    requirement_owner: declaration_out(&value.requirement.owner, &self.identity)?,
                     requirement_index: value.requirement.index,
                 },
             },
@@ -567,7 +587,7 @@ impl ExportIds {
                         .as_ref()
                         .map(|source| {
                             Ok::<_, ArtifactError>(StableTypeMemberRef {
-                                owner: declaration_out(&source.owner)?,
+                                owner: declaration_out(&source.owner, &self.identity)?,
                                 selector: source.selector.name().into(),
                             })
                         })
@@ -713,21 +733,11 @@ impl ExportIds {
     }
 }
 
-fn stable_parameter_owner(owner: &TypeParameterOwner) -> Result<StableOwnerRef, ArtifactError> {
+fn stable_parameter_owner(owner: &TypeParameterOwner, identity: &StableIdentityContext<'_>) -> Result<StableOwnerRef, ArtifactError> {
     Ok(match owner {
-        TypeParameterOwner::Declaration(owner) => StableOwnerRef::Declaration(declaration_out(owner)?),
-        TypeParameterOwner::Callable(owner) => {
-            if !owner.module().project.is_universe() {
-                return Err(invalid("non-Universe callable parameter owner"));
-            }
-            StableOwnerRef::Callable(to_stable_callable(owner))
-        }
-        TypeParameterOwner::Impl(owner) => {
-            if !owner.module.project.is_universe() {
-                return Err(invalid("non-Universe impl parameter owner"));
-            }
-            StableOwnerRef::Impl(to_stable_impl(owner))
-        }
+        TypeParameterOwner::Declaration(owner) => StableOwnerRef::Declaration(declaration_out(owner, identity)?),
+        TypeParameterOwner::Callable(owner) => StableOwnerRef::Callable(to_stable_callable_with_context(owner, identity)),
+        TypeParameterOwner::Impl(owner) => StableOwnerRef::Impl(to_stable_impl_with_context(owner, identity)),
     })
 }
 
@@ -765,19 +775,19 @@ macro_rules! assign_export_id {
     }};
 }
 
-struct ExportGraphWalker<'a> {
-    store: &'a TypeStore,
-    limits: &'a ValidationLimits,
-    ids: ExportIds,
+struct ExportGraphWalker<'store, 'identity> {
+    store: &'store TypeStore,
+    limits: &'store ValidationLimits,
+    ids: ExportIds<'identity>,
     active: BTreeSet<ExportNode>,
 }
 
-impl<'a> ExportGraphWalker<'a> {
-    fn new(store: &'a TypeStore, limits: &'a ValidationLimits) -> Self {
+impl<'store, 'identity> ExportGraphWalker<'store, 'identity> {
+    fn new(store: &'store TypeStore, limits: &'store ValidationLimits, identity: StableIdentityContext<'identity>) -> Self {
         Self {
             store,
             limits,
-            ids: ExportIds::empty(),
+            ids: ExportIds::empty(identity),
             active: BTreeSet::new(),
         }
     }
@@ -1327,7 +1337,7 @@ impl<'a> ExportGraphWalker<'a> {
         self.leave(node, result)
     }
 
-    fn finish(self) -> Result<ExportIds, ArtifactError> {
+    fn finish(self) -> Result<ExportIds<'identity>, ArtifactError> {
         if !self.active.is_empty() {
             return Err(invalid("type export graph closed with active traversal nodes"));
         }
@@ -1335,31 +1345,20 @@ impl<'a> ExportGraphWalker<'a> {
     }
 }
 
-fn declaration_out(value: &DeclarationId) -> Result<StableDeclarationRef, ArtifactError> {
-    if !value.module.project.is_universe() {
-        return Err(invalid("canonical type graph contains non-Universe declaration"));
-    }
-    Ok(to_stable_declaration(value))
+fn declaration_out(value: &DeclarationId, identity: &StableIdentityContext<'_>) -> Result<StableDeclarationRef, ArtifactError> {
+    Ok(to_stable_declaration_with_context(value, identity))
 }
-fn owner_out(value: &TypeParameterOwner) -> Result<ParameterOwnerV1, ArtifactError> {
+fn owner_out(value: &TypeParameterOwner, identity: &StableIdentityContext<'_>) -> Result<ParameterOwnerV1, ArtifactError> {
     Ok(match value {
         TypeParameterOwner::Declaration(owner) => ParameterOwnerV1::Declaration {
-            owner: declaration_out(owner)?,
+            owner: declaration_out(owner, identity)?,
         },
-        TypeParameterOwner::Callable(owner) => {
-            if !owner.module().project.is_universe() {
-                return Err(invalid("non-Universe callable parameter owner"));
-            }
-            ParameterOwnerV1::Callable {
-                owner: to_stable_callable(owner),
-            }
-        }
-        TypeParameterOwner::Impl(owner) => {
-            if !owner.module.project.is_universe() {
-                return Err(invalid("non-Universe impl parameter owner"));
-            }
-            ParameterOwnerV1::Impl { owner: to_stable_impl(owner) }
-        }
+        TypeParameterOwner::Callable(owner) => ParameterOwnerV1::Callable {
+            owner: to_stable_callable_with_context(owner, identity),
+        },
+        TypeParameterOwner::Impl(owner) => ParameterOwnerV1::Impl {
+            owner: to_stable_impl_with_context(owner, identity),
+        },
     })
 }
 fn key_out(value: &FieldKey) -> FieldKeyV1 {
@@ -1426,9 +1425,9 @@ fn operation_out(value: &FamilyOperationShape) -> OperationV1 {
 }
 
 impl TypeStore {
-    /// Projects finalized canonical arenas without storing process arena identities.
-    pub fn project_artifact(&self, limits: &ValidationLimits) -> Result<TypeGraphV1, ArtifactError> {
-        let ids = ExportIds::new_full(self)?;
+    /// Projects finalized canonical arenas without process identities, using `identity` for owners.
+    pub fn project_artifact(&self, limits: &ValidationLimits, identity: StableIdentityContext<'_>) -> Result<TypeGraphV1, ArtifactError> {
+        let ids = ExportIds::new_full(self, identity)?;
         self.project_artifact_with_ids(&ids, limits)
     }
 
@@ -1471,7 +1470,7 @@ impl TypeStore {
             .map(|id| {
                 let value = &self.type_parameters[id.index()];
                 Ok(ParameterV1 {
-                    owner: owner_out(&value.owner)?,
+                    owner: owner_out(&value.owner, &ids.identity)?,
                     index: value.index,
                     name: value.name.to_string(),
                     kind: ids.kind(value.kind)?,
@@ -1539,7 +1538,7 @@ impl TypeStore {
             .map(|id| {
                 let variant = &self.variant_identities[id.index()];
                 Ok(StableVariantRef {
-                    owner: declaration_out(&variant.owner)?,
+                    owner: declaration_out(&variant.owner, &ids.identity)?,
                     selector: variant.selector.encode().into(),
                 })
             })
@@ -1552,11 +1551,11 @@ impl TypeStore {
                 Ok(match value {
                     StaticDomainData::ConstInt => StaticDomainV1::ConstInt,
                     StaticDomainData::Nominal { declaration } => StaticDomainV1::Nominal {
-                        declaration: declaration_out(declaration)?,
+                        declaration: declaration_out(declaration, &ids.identity)?,
                     },
                     StaticDomainData::Associated { declaration, owner_arguments } => StaticDomainV1::Associated {
                         declaration: StableAssociatedStaticDomainDeclarationRef {
-                            owner: declaration_out(&declaration.owner)?,
+                            owner: declaration_out(&declaration.owner, &ids.identity)?,
                             name: declaration.name.clone(),
                         },
                         arguments: ids.args(owner_arguments)?,
@@ -1571,7 +1570,7 @@ impl TypeStore {
                 let value = &self.static_constructors[id.index()];
                 Ok(StaticConstructorV1 {
                     domain: ids.domain(value.domain)?,
-                    declaration: declaration_out(&value.declaration)?,
+                    declaration: declaration_out(&value.declaration, &ids.identity)?,
                     case_name: value.case_name.to_string(),
                     parameter_kinds: value.parameter_kinds.iter().map(|kind| ids.kind(*kind)).collect::<Result<_, _>>()?,
                 })
@@ -1601,7 +1600,7 @@ impl TypeStore {
             .iter()
             .map(|((owner, index), variance)| {
                 Ok(VarianceOverrideV1 {
-                    owner: declaration_out(owner)?,
+                    owner: declaration_out(owner, &ids.identity)?,
                     index: *index,
                     variance: variance_out(**variance),
                 })
@@ -1667,7 +1666,8 @@ mod artifact_relocation_validation_tests {
     fn type_graph_import_rejects_duplicate_relocated_type_identity() {
         let limits = ValidationLimits::default();
         let source = TypeStore::new();
-        let export = TypeExportContext::new_full(&source).expect("export context");
+        let artifact_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let export = TypeExportContext::new_full(&source, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_1)).expect("export context");
         let mut graph = export.project_graph(&source, &limits).expect("type graph");
         graph.types.push(graph.types[0].clone());
 
@@ -3524,7 +3524,8 @@ mod artifact_owner_catalog_regressions {
         let mut source = TypeStore::new();
         let source_type = source.nominal_type(declaration.clone());
         assert_eq!(source.get(source_type), &TypeData::Nominal { declaration: declaration.clone() });
-        let graph = source.project_artifact(&limits).unwrap();
+        let project_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let graph = source.project_artifact(&limits, crate::metadata::stable_identity::StableIdentityContext::new(&project_identity_projects_1)).unwrap();
         let artifact_type = graph
             .types
             .iter()
@@ -3593,7 +3594,8 @@ mod artifact_owner_catalog_regressions {
             "T",
             KindId::TYPE,
         ));
-        let mut graph = source.project_artifact(&limits).unwrap();
+        let project_identity_projects_2 = phalcom_modules::ProjectUniverse::new();
+        let mut graph = source.project_artifact(&limits, crate::metadata::stable_identity::StableIdentityContext::new(&project_identity_projects_2)).unwrap();
         assert!(!graph.current_parameters.is_empty());
         graph.current_parameters.push(graph.current_parameters[0]);
 

@@ -7733,7 +7733,8 @@ mod tests {
         use phalcom_compiler_artifact::semantic::type_store::{CanonicalRootFamilyTag, CanonicalTypeRootKey, StableOwnerRef};
 
         let root_callable = crate::identity::CallableId::method(owner(), Selector::getter("artifact_denotation_root").unwrap(), DispatchSide::Class);
-        let mut types = TypeExportContext::new(store);
+        let artifact_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_1));
         let lineage = types.expected_lineage();
         for (index, ty) in type_roots.iter().copied().enumerate() {
             types
@@ -8556,7 +8557,8 @@ mod tests {
         ];
 
         let store = TypeStore::new();
-        let types = TypeExportContext::new(&store);
+        let artifact_identity_projects_2 = phalcom_modules::ProjectUniverse::new();
+        let types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_2));
         let relocation = TypeRelocation {
             store_id: store.id(),
             types: Vec::new(),
@@ -9102,7 +9104,8 @@ mod tests {
             source: None,
         }));
 
-        let mut export_types = TypeExportContext::new(&store);
+        let artifact_identity_projects_3 = phalcom_modules::ProjectUniverse::new();
+        let mut export_types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_3));
         crate::artifact::roots::register_callable_signature_roots(&mut export_types, &requirements[0].signature).unwrap();
         crate::artifact::roots::register_callable_signature_roots(&mut export_types, &requirements[1].signature).unwrap();
         export_types.close_graph(&store, &ValidationLimits::default()).unwrap();
@@ -9129,7 +9132,8 @@ mod tests {
         let error = import_enum_requirements(&portable, &enum_semantics, &relocation, &restored_store, &mut short_budget).unwrap_err();
         assert!(matches!(error, ArtifactError::Allocation(AllocationError::Exhausted)));
 
-        let mut restored_types = TypeExportContext::new(&restored_store);
+        let artifact_identity_projects_4 = phalcom_modules::ProjectUniverse::new();
+        let mut restored_types = TypeExportContext::new(&restored_store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_4));
         for requirement in restored.requirements.get(&owner).unwrap().iter() {
             crate::artifact::roots::register_callable_signature_roots(&mut restored_types, &requirement.signature).unwrap();
         }
@@ -9158,7 +9162,8 @@ mod tests {
         signature.lifecycle = native.lifecycle();
 
         let store = TypeStore::new();
-        let types = TypeExportContext::new(&store);
+        let artifact_identity_projects_5 = phalcom_modules::ProjectUniverse::new();
+        let types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_5));
         let portable = crate::artifact::export::export_callable_signature(&signature, &types).unwrap();
         assert!(import_native_metadata(&portable).is_ok());
 
@@ -9361,7 +9366,8 @@ mod tests {
         let limits = ValidationLimits::default();
         let mut source_store = TypeStore::new();
         let source_type = source_store.nominal(owner());
-        let types = TypeExportContext::new_full(&source_store).unwrap();
+        let artifact_identity_projects_6 = phalcom_modules::ProjectUniverse::new();
+        let types = TypeExportContext::new_full(&source_store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_6)).unwrap();
         let graph = types.project_graph(&source_store, &limits).unwrap();
         let (store, relocation) = TypeStore::import_type_graph(&graph, &limits).unwrap();
         let portable_type = types.ty(source_type).unwrap();
@@ -9559,7 +9565,8 @@ mod tests {
         let mut surfaces = AssociatedFamilyTable::new();
         surfaces.insert(owner.clone(), Arc::new(surface));
 
-        let type_export = TypeExportContext::new_full(&store).unwrap();
+        let artifact_identity_projects_7 = phalcom_modules::ProjectUniverse::new();
+        let type_export = TypeExportContext::new_full(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_7)).unwrap();
         let exported = crate::artifact::export::export_associated_authority(&type_members, &static_domains, &surfaces, &type_export).unwrap();
         let graph = type_export.project_graph(&store, &ValidationLimits::default()).unwrap();
         let (_imported_store, relocation) = TypeStore::import_type_graph(&graph, &ValidationLimits::default()).unwrap();
@@ -9837,8 +9844,10 @@ mod tests {
         ];
 
         let mut world = empty_semantic_world_for_module_world(&module_world);
-        world.module_execution_authority.runtime_requirements =
-            crate::artifact::export::export_runtime_dependency_requirements(&native_requirements).expect("export native runtime requirements");
+        let identity_projects = phalcom_modules::ProjectUniverse::new();
+        let identity = crate::metadata::stable_identity::StableIdentityContext::new(&identity_projects);
+        world.module_execution_authority.runtime_requirements = crate::artifact::export::export_runtime_dependency_requirements(&native_requirements, &identity)
+            .expect("export native runtime requirements");
         let encoded = world.encode().expect("encode validated SemanticWorldV4");
         let decoded = phalcom_compiler_artifact::semantic::world::SemanticWorldV4::decode(&encoded, &ValidationLimits::default())
             .expect("decode and validate SemanticWorldV4");

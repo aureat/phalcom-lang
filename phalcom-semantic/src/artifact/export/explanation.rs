@@ -6,11 +6,11 @@ use crate::types::outcome::{RelationFailure, RelationOutcome};
 use phalcom_compiler_artifact::semantic::aggregates::DynamicReasonV1;
 use phalcom_compiler_artifact::semantic::world::*;
 
-struct ExplanationExport<'a> {
-    ordinals: &'a CallableAnalysisOrdinalMap,
-    types: &'a TypeExportContext,
+struct ExplanationExport<'borrow, 'identity> {
+    ordinals: &'borrow CallableAnalysisOrdinalMap,
+    types: &'borrow TypeExportContext<'identity>,
 }
-impl ExplanationExport<'_> {
+impl ExplanationExport<'_, '_> {
     fn derivationrule(&mut self, value: &DerivationRule) -> Result<CallableDerivationRuleV1, ArtifactError> {
         Ok(match value {
             DerivationRule::LiteralSynthesis => CallableDerivationRuleV1::LiteralSynthesis,
@@ -144,7 +144,7 @@ impl ExplanationExport<'_> {
             UnionArmOutcome::Missing { visited_owners } => CallableExplainUnionArmOutcomeV1::Missing {
                 visited_owners: visited_owners
                     .iter()
-                    .map(|value| Ok::<_, ArtifactError>(to_stable_declaration(value)))
+                    .map(|value| Ok::<_, ArtifactError>(to_stable_declaration_with_context(value, self.types.identity_context())))
                     .collect::<Result<Vec<_>, _>>()?,
             },
             UnionArmOutcome::Ambiguous => CallableExplainUnionArmOutcomeV1::Ambiguous,
@@ -224,7 +224,10 @@ impl ExplanationExport<'_> {
             ExplanationStep::TypeRequirement { expected, origin, source } => CallableExplanationStepV1::TypeRequirement {
                 expected: self.types.ty(*expected)?,
                 origin: self.expectationorigin(origin)?,
-                source: source.as_ref().map(|value| Ok::<_, ArtifactError>(export_source_span(value)?)).transpose()?,
+                source: source
+                    .as_ref()
+                    .map(|value| Ok::<_, ArtifactError>(export_source_span(value, self.types.identity_context())?))
+                    .transpose()?,
             },
             ExplanationStep::TypeRelation { actual, expected, outcome } => CallableExplanationStepV1::TypeRelation {
                 actual: export_type_knowledge(actual, self.types)?,
@@ -237,25 +240,28 @@ impl ExplanationExport<'_> {
                 declaring_owner,
                 specialization_path,
             } => CallableExplanationStepV1::CallableSelection {
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
                 receiver: self.types.ty(*receiver)?,
-                declaring_owner: to_stable_declaration(declaring_owner),
+                declaring_owner: to_stable_declaration_with_context(declaring_owner, self.types.identity_context()),
                 specialization_path: specialization_path
                     .iter()
-                    .map(|value| Ok::<_, ArtifactError>(to_stable_declaration(value)))
+                    .map(|value| Ok::<_, ArtifactError>(to_stable_declaration_with_context(value, self.types.identity_context())))
                     .collect::<Result<Vec<_>, _>>()?,
             },
             ExplanationStep::UnionArm { receiver, callable, outcome } => CallableExplanationStepV1::UnionArm {
                 receiver: self.types.ty(*receiver)?,
-                callable: callable.as_ref().map(|value| Ok::<_, ArtifactError>(to_stable_callable(value))).transpose()?,
+                callable: callable
+                    .as_ref()
+                    .map(|value| Ok::<_, ArtifactError>(to_stable_callable_with_context(value, self.types.identity_context())))
+                    .transpose()?,
                 outcome: self.unionarmoutcome(outcome)?,
             },
             ExplanationStep::CallableKind { callable, kind } => CallableExplanationStepV1::CallableKind {
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
                 kind: self.callablesemantickind(kind)?,
             },
             ExplanationStep::CallableReturn { callable, ty } => CallableExplanationStepV1::CallableReturn {
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
                 ty: self.types.ty(*ty)?,
             },
             ExplanationStep::SelfTypeSpecialization { self_ty, receiver, resolved } => CallableExplanationStepV1::SelfTypeSpecialization {
@@ -285,7 +291,10 @@ impl ExplanationExport<'_> {
                 expected: self.types.ty(*expected)?,
             },
             ExplanationStep::CallShape { callable, failures } => CallableExplanationStepV1::CallShape {
-                callable: callable.as_ref().map(|value| Ok::<_, ArtifactError>(to_stable_callable(value))).transpose()?,
+                callable: callable
+                    .as_ref()
+                    .map(|value| Ok::<_, ArtifactError>(to_stable_callable_with_context(value, self.types.identity_context())))
+                    .transpose()?,
                 failures: failures
                     .iter()
                     .map(|value| Ok::<_, ArtifactError>(self.callshapeexplanation(value)?))
@@ -297,7 +306,7 @@ impl ExplanationExport<'_> {
                     .expressions
                     .get(call)
                     .ok_or_else(|| referential("explanation local reference has no owner"))?,
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
                 return_ty: self.types.ty(*return_ty)?,
             },
             ExplanationStep::UnresolvedCall { call, return_ty } => CallableExplanationStepV1::UnresolvedCall {
@@ -413,14 +422,17 @@ impl ExplanationExport<'_> {
             ExplanationStep::IterationElement { iterable, element, callable } => CallableExplanationStepV1::IterationElement {
                 iterable: export_type_knowledge(iterable, self.types)?,
                 element: export_type_knowledge(element, self.types)?,
-                callable: callable.as_ref().map(|value| Ok::<_, ArtifactError>(to_stable_callable(value))).transpose()?,
+                callable: callable
+                    .as_ref()
+                    .map(|value| Ok::<_, ArtifactError>(to_stable_callable_with_context(value, self.types.identity_context())))
+                    .transpose()?,
             },
             ExplanationStep::ReturnCheck { actual, expected } => CallableExplanationStepV1::ReturnCheck {
                 actual: export_type_knowledge(actual, self.types)?,
                 expected: expected.as_ref().map(|value| Ok::<_, ArtifactError>(self.types.ty(*value)?)).transpose()?,
             },
             ExplanationStep::CallableReturnSummary { callable, returns, result } => CallableExplanationStepV1::CallableReturnSummary {
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
                 returns: returns
                     .iter()
                     .map(|value| Ok::<_, ArtifactError>(export_type_knowledge(value, self.types)?))
@@ -502,8 +514,8 @@ impl ExplanationExport<'_> {
                 expected: self.types.ty(*expected)?,
             },
             RelationFailure::IncompatibleNominal { actual, expected } => CallableExplainRelationFailureV1::IncompatibleNominal {
-                actual: to_stable_declaration(actual),
-                expected: to_stable_declaration(expected),
+                actual: to_stable_declaration_with_context(actual, self.types.identity_context()),
+                expected: to_stable_declaration_with_context(expected, self.types.identity_context()),
             },
             RelationFailure::UnionMemberMismatch { actual, expected } => CallableExplainRelationFailureV1::UnionMemberMismatch {
                 actual: self.types.ty(*actual)?,
@@ -540,7 +552,7 @@ impl ExplanationExport<'_> {
 pub(super) fn export_explanations(
     analysis: &crate::checker::analysis::CallableAnalysis,
     ordinals: &CallableAnalysisOrdinalMap,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<Vec<CallableExplanationNodeV1>, ArtifactError> {
     let mut export = ExplanationExport { ordinals, types };
     analysis

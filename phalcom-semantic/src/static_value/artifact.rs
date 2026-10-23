@@ -9,7 +9,7 @@ use crate::data_semantics::DataSemanticTable;
 use crate::enum_semantics::EnumSemanticTable;
 use crate::field_key::FieldKey;
 use crate::identity::{DeclarationId, VariantId};
-use crate::metadata::stable_identity::{to_stable_declaration, to_stable_variant};
+use crate::metadata::stable_identity::{to_stable_declaration_with_context, to_stable_variant_with_context};
 use crate::static_value::store::{
     FrozenStaticValuePrefix, StaticDataValue, StaticDataValueId, StaticFloat, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId,
     StaticRecordField, StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId, StaticStringId, StaticSymbolId, StaticTupleId,
@@ -141,14 +141,14 @@ impl StaticExportContext {
 
     /// Register result and embedded type references from reachable static values
     /// before the shared type graph closes.
-    pub fn register_type_roots(&self, store: &StaticValueStore, types: &mut TypeExportContext, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    pub fn register_type_roots(&self, store: &StaticValueStore, types: &mut TypeExportContext<'_>, limits: &ValidationLimits) -> Result<(), ArtifactError> {
         self.verify_store(store)?;
         fn visit(
             store: &StaticValueStore,
             value: StaticValueRef,
             key: &CanonicalTypeRootKey,
             ordinal: &mut u32,
-            types: &mut TypeExportContext,
+            types: &mut TypeExportContext<'_>,
             active: &mut BTreeSet<StaticValueId>,
             depth: usize,
             limits: &ValidationLimits,
@@ -218,22 +218,22 @@ impl StaticExportContext {
         Ok(())
     }
 
-    pub fn close_graph(&mut self, store: &StaticValueStore, type_export: &TypeExportContext, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    pub fn close_graph(&mut self, store: &StaticValueStore, type_export: &TypeExportContext<'_>, limits: &ValidationLimits) -> Result<(), ArtifactError> {
         self.verify_store(store)?;
         if self.closed {
             return Err(referential("static export graph is already closed"));
         }
         let roots: Vec<StaticValueId> = self.roots.values().map(|r| r.value_id()).collect();
 
-        struct Walker<'a> {
-            store: &'a StaticValueStore,
-            type_export: &'a TypeExportContext,
-            limits: &'a ValidationLimits,
+        struct Walker<'borrow, 'identity> {
+            store: &'borrow StaticValueStore,
+            type_export: &'borrow TypeExportContext<'identity>,
+            limits: &'borrow ValidationLimits,
             seen: BTreeSet<StaticValueId>,
-            context: &'a mut StaticExportContext,
+            context: &'borrow mut StaticExportContext,
         }
 
-        impl<'a> Walker<'a> {
+        impl Walker<'_, '_> {
             fn walk(&mut self, val_id: StaticValueId, depth: usize) -> Result<(), ArtifactError> {
                 if depth > self.limits.max_recursion_depth {
                     return Err(referential("static value graph recursion limit exceeded"));
@@ -397,7 +397,7 @@ impl StaticExportContext {
     pub fn project_graph(
         &self,
         store: &StaticValueStore,
-        type_export: &TypeExportContext,
+        type_export: &TypeExportContext<'_>,
         limits: &ValidationLimits,
     ) -> Result<StaticValueGraphV1, ArtifactError> {
         self.verify_store(store)?;
@@ -472,8 +472,8 @@ impl StaticExportContext {
             .iter()
             .map(|did| {
                 let d = store.get_data(*did).map_err(store_error)?;
-                let owner = to_stable_declaration(&d.owner);
-                let constructor_owner = to_stable_declaration(&d.constructor.owner);
+                let owner = to_stable_declaration_with_context(&d.owner, type_export.identity_context());
+                let constructor_owner = to_stable_declaration_with_context(&d.constructor.owner, type_export.identity_context());
                 let result_type = type_export.ty(d.result_type)?;
                 let components = d
                     .components
@@ -499,7 +499,7 @@ impl StaticExportContext {
             .iter()
             .map(|vid| {
                 let v = store.get_variant(*vid).map_err(store_error)?;
-                let variant = to_stable_variant(&v.variant);
+                let variant = to_stable_variant_with_context(&v.variant, type_export.identity_context());
                 let result_type = type_export.ty(v.result_type)?;
                 let fields = v
                     .fields
@@ -1286,7 +1286,8 @@ mod shared_static_store_tests {
 
     fn shared_types(limits: &ValidationLimits, allocations: &mut AllocationBudget) -> (TypeStore, TypeRelocation) {
         let source = TypeStore::new();
-        let graph = source.project_artifact(limits).unwrap();
+        let project_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let graph = source.project_artifact(limits, crate::metadata::stable_identity::StableIdentityContext::new(&project_identity_projects_1)).unwrap();
         let mut receiver = TypeStore::new();
         let relocation = TypeStore::import_type_graph_into_store_with_owner_catalog_and_allocation_budget(
             &mut receiver,
@@ -1378,7 +1379,10 @@ mod shared_static_store_tests {
         let limits = ValidationLimits::default();
         let mut allocations = AllocationBudget::new(16 * 1024 * 1024);
         let (types, type_relocation) = shared_types(&limits, &mut allocations);
-        let missing = to_stable_declaration(&DeclarationId::new(ModuleId::universe_root(), "MissingStaticDataOwner".into()));
+        let missing = crate::metadata::stable_identity::to_stable_declaration(&DeclarationId::new(
+            ModuleId::universe_root(),
+            "MissingStaticDataOwner".into(),
+        ));
         let graph = StaticValueGraphV1 {
             values: vec![
                 StaticValueV1::Unit,

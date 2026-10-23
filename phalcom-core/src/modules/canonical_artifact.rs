@@ -330,16 +330,18 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
     let module_world = ModuleWorldV5::from(module_world);
 
     // 2. SEMANTIC_WORLD
-    let mut types = TypeExportContext::new(&view.formal.snapshot().store);
+    let snapshot = view.formal.snapshot();
+    let identity = phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&snapshot.module_products.universe);
+    let mut types = TypeExportContext::new(&snapshot.store, identity);
     let mut statics = StaticExportContext::new(view.formal.snapshot().static_values.as_ref());
-    phalcom_semantic::artifact::roots::register_semantic_world_roots(view.formal.snapshot(), &mut types, &mut statics)?;
+    phalcom_semantic::artifact::roots::register_semantic_world_roots(snapshot, &mut types, &mut statics)?;
     statics.register_type_roots(&view.formal.snapshot().static_values, &mut types, limits)?;
-    types.close_graph(&view.formal.snapshot().store, limits)?;
+    types.close_graph(&snapshot.store, limits)?;
     statics
         .close_graph(view.formal.snapshot().static_values.as_ref(), &types, limits)
         .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;
     let semantic_world = export_semantic_world_v4_with_runtime_requirements(
-        view.formal.snapshot(),
+        snapshot,
         &types,
         &statics,
         &module_world,
@@ -357,6 +359,7 @@ pub fn build_universe_telosc(view: &CanonicalCompilerImageView<'_>, limits: &Val
         view.formal.dependency_fingerprints(),
         &module_world,
         &semantic_world,
+        types.identity_context(),
         limits,
     )
     .map_err(|e| TeloscArtifactError::CanonicalImage(CanonicalImageError::IncompletePublication(e.to_string())))?;

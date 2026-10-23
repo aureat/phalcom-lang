@@ -52,6 +52,7 @@
 use crate::identity::{
     AssociatedStaticDomainDeclarationId, CallableId, DeclarationId, FieldId, ImplId, ModuleId, StaticCaseId, StaticDomainDeclarationId, VariantId,
 };
+use crate::metadata::stable_identity::StableIdentityContext;
 use crate::db::QueryKey;
 use crate::snapshot::SemanticSnapshot;
 use crate::static_constant::StaticConstantId;
@@ -239,12 +240,13 @@ pub fn query_owner_module(key: &QueryKey) -> Option<&ModuleId> {
 pub struct ArtifactSemanticProjection<'a> {
     snapshot: &'a SemanticSnapshot,
     scope: &'a ArtifactProjectionScope,
+    identity: StableIdentityContext<'a>,
 }
 
 impl<'a> ArtifactSemanticProjection<'a> {
     /// Projects `snapshot` through `scope`.
-    pub fn new(snapshot: &'a SemanticSnapshot, scope: &'a ArtifactProjectionScope) -> Self {
-        Self { snapshot, scope }
+    pub fn new(snapshot: &'a SemanticSnapshot, scope: &'a ArtifactProjectionScope, identity: StableIdentityContext<'a>) -> Self {
+        Self { snapshot, scope, identity }
     }
 
     /// The composed snapshot being projected.
@@ -255,6 +257,11 @@ impl<'a> ArtifactSemanticProjection<'a> {
     /// The ownership scope applied to the snapshot.
     pub fn scope(&self) -> &'a ArtifactProjectionScope {
         self.scope
+    }
+
+    /// Identity authority used to serialize owners in this projection.
+    pub fn identity_context(&self) -> &StableIdentityContext<'a> {
+        &self.identity
     }
 }
 

@@ -8,7 +8,8 @@ use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeS
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::{AlgebraicCasePayloadKind, EnumSemanticTable, VariantFieldSemantic, VariantShape, VariantVisibility};
 use crate::metadata::stable_identity::{
-    to_stable_callable, to_stable_declaration, to_stable_dispatch_side, to_stable_field, to_stable_impl, to_stable_module, to_stable_variant,
+    to_stable_callable_with_context, to_stable_declaration_with_context, to_stable_dispatch_side, to_stable_field_with_context, to_stable_impl_with_context,
+    to_stable_module_with_context, to_stable_variant_with_context,
 };
 use crate::type_alias::TypeAliasTable;
 use crate::types::case_environment::CaseTypeEnvironment;
@@ -29,15 +30,18 @@ fn referential(message: impl Into<String>) -> ArtifactError {
     ValidationError::ReferentialIntegrity(message.into()).into()
 }
 
-pub fn export_parameter_owner(owner: &TypeParameterOwner) -> Result<ParameterOwnerV1, ArtifactError> {
+/// Exports a parameter owner through the caller's stable identity authority.
+pub fn export_parameter_owner(owner: &TypeParameterOwner, identity: &crate::metadata::stable_identity::StableIdentityContext<'_>) -> Result<ParameterOwnerV1, ArtifactError> {
     Ok(match owner {
         TypeParameterOwner::Declaration(decl) => ParameterOwnerV1::Declaration {
-            owner: to_stable_declaration(decl),
+            owner: to_stable_declaration_with_context(decl, identity),
         },
         TypeParameterOwner::Callable(callable) => ParameterOwnerV1::Callable {
-            owner: to_stable_callable(callable),
+            owner: to_stable_callable_with_context(callable, identity),
         },
-        TypeParameterOwner::Impl(r#impl) => ParameterOwnerV1::Impl { owner: to_stable_impl(r#impl) },
+        TypeParameterOwner::Impl(r#impl) => ParameterOwnerV1::Impl {
+            owner: to_stable_impl_with_context(r#impl, identity),
+        },
     })
 }
 
@@ -65,12 +69,12 @@ pub fn export_self_role(role: SelfRole) -> SelfRoleV1 {
     }
 }
 
-pub fn export_type_term(term: &TypeTerm, types: &TypeExportContext) -> Result<TypeTermV1, ArtifactError> {
+pub fn export_type_term(term: &TypeTerm, types: &TypeExportContext<'_>) -> Result<TypeTermV1, ArtifactError> {
     match term {
         TypeTerm::Canonical(ty) => Ok(TypeTermV1::Canonical { ty: types.ty(*ty)? }),
         TypeTerm::SelfType(term) => Ok(TypeTermV1::SelfType {
             term: SelfTypeV1 {
-                owner: to_stable_declaration(&term.owner),
+                owner: to_stable_declaration_with_context(&term.owner, types.identity_context()),
                 side: to_stable_dispatch_side(term.side),
                 role: export_self_role(term.role),
             },
@@ -79,26 +83,26 @@ pub fn export_type_term(term: &TypeTerm, types: &TypeExportContext) -> Result<Ty
     }
 }
 
-fn export_trait_ref_identity(trait_ref: &crate::traits::TraitRef, types: &TypeExportContext) -> Result<TraitRefV1, ArtifactError> {
+fn export_trait_ref_identity(trait_ref: &crate::traits::TraitRef, types: &TypeExportContext<'_>) -> Result<TraitRefV1, ArtifactError> {
     Ok(TraitRefV1 {
-        declaration: to_stable_declaration(&trait_ref.declaration),
+        declaration: to_stable_declaration_with_context(&trait_ref.declaration, types.identity_context()),
         arguments: trait_ref.arguments.iter().map(|&argument| types.ty(argument)).collect::<Result<Vec<_>, _>>()?,
     })
 }
 
 pub fn export_callable_query_owner(
     key: &crate::db::QueryKey,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableQueryOwnerV1, ArtifactError> {
     use crate::db::QueryKey;
     use phalcom_compiler_artifact::semantic::world::{CallableFieldRefV1, CallableQueryOwnerV1 as Portable, ConformanceTargetV1};
 
     Ok(match key {
         QueryKey::CallableSignature(callable) => Portable::CallableSignature {
-            callable: to_stable_callable(callable),
+            callable: to_stable_callable_with_context(callable, types.identity_context()),
         },
         QueryKey::FieldSignature(field) => {
-            let field = to_stable_field(field);
+            let field = to_stable_field_with_context(field, types.identity_context());
             Portable::FieldSignature {
                 field: CallableFieldRefV1 {
                     owner: field.owner,
@@ -114,10 +118,10 @@ pub fn export_callable_query_owner(
         QueryKey::TraitDispatchBucket(key) => Portable::TraitDispatchBucket {
             target_family: match &key.target_family {
                 crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(declaration) => ConformanceTargetV1::Declaration {
-                    declaration: to_stable_declaration(declaration),
+                    declaration: to_stable_declaration_with_context(declaration, types.identity_context()),
                 },
                 crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => ConformanceTargetV1::ExactEnumCase {
-                    variant: to_stable_variant(variant),
+                    variant: to_stable_variant_with_context(variant, types.identity_context()),
                 },
             },
             selector: export_exact_selector(&key.selector),
@@ -132,7 +136,7 @@ pub fn export_callable_query_owner(
     })
 }
 
-pub fn export_constraint(constraint: &GenericConstraint, types: &TypeExportContext) -> Result<GenericConstraintV1, ArtifactError> {
+pub fn export_constraint(constraint: &GenericConstraint, types: &TypeExportContext<'_>) -> Result<GenericConstraintV1, ArtifactError> {
     Ok(match constraint {
         GenericConstraint::Subtype { lower, upper } => GenericConstraintV1::Subtype {
             lower: export_type_term(lower, types)?,
@@ -145,15 +149,15 @@ pub fn export_constraint(constraint: &GenericConstraint, types: &TypeExportConte
         GenericConstraint::Conforms { subject, trait_ref } => GenericConstraintV1::Conforms {
             subject: export_type_term(subject, types)?,
             trait_ref: TraitRefV1 {
-                declaration: to_stable_declaration(&trait_ref.declaration),
+                declaration: to_stable_declaration_with_context(&trait_ref.declaration, types.identity_context()),
                 arguments: trait_ref.arguments.iter().map(|&arg| types.ty(arg)).collect::<Result<Vec<_>, _>>()?,
             },
         },
     })
 }
 
-pub fn export_generic_signature(sig: &GenericSignature, types: &TypeExportContext) -> Result<GenericSignatureV1, ArtifactError> {
-    let owner = export_parameter_owner(&sig.owner)?;
+pub fn export_generic_signature(sig: &GenericSignature, types: &TypeExportContext<'_>) -> Result<GenericSignatureV1, ArtifactError> {
+    let owner = export_parameter_owner(&sig.owner, types.identity_context())?;
     let parameters = sig.parameters.iter().map(|&p| types.parameter(p)).collect::<Result<Vec<_>, _>>()?;
     let parameter_kinds = sig.parameter_kinds.iter().map(|&k| types.kind(k)).collect::<Result<Vec<_>, _>>()?;
     let parameter_kind_shapes = sig.parameter_kind_shapes.to_vec();
@@ -174,7 +178,7 @@ pub fn export_generic_signature(sig: &GenericSignature, types: &TypeExportContex
     })
 }
 
-pub fn export_declared_type_state(state: &DeclaredTypeState, types: &TypeExportContext) -> Result<DeclaredTypeStateV1, ArtifactError> {
+pub fn export_declared_type_state(state: &DeclaredTypeState, types: &TypeExportContext<'_>) -> Result<DeclaredTypeStateV1, ArtifactError> {
     Ok(match state {
         DeclaredTypeState::Known(term) => DeclaredTypeStateV1::Known {
             term: export_type_term(term, types)?,
@@ -224,7 +228,7 @@ pub fn export_declared_type_basis(basis: DeclaredTypeBasis) -> DeclaredTypeBasis
     }
 }
 
-pub fn export_declared_type_fact(fact: &DeclaredTypeFact, types: &TypeExportContext) -> Result<DeclaredTypeFactV1, ArtifactError> {
+pub fn export_declared_type_fact(fact: &DeclaredTypeFact, types: &TypeExportContext<'_>) -> Result<DeclaredTypeFactV1, ArtifactError> {
     Ok(DeclaredTypeFactV1 {
         state: export_declared_type_state(&fact.state, types)?,
         basis: export_declared_type_basis(fact.basis),
@@ -261,9 +265,12 @@ fn export_dynamic_reason(reason: &DynamicReason) -> DynamicReasonV1 {
     }
 }
 
-fn export_source_span(source: &crate::diagnostic::SemanticSourceSpan) -> Result<EnumRequirementSourceV1, ArtifactError> {
+fn export_source_span(
+    source: &crate::diagnostic::SemanticSourceSpan,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> Result<EnumRequirementSourceV1, ArtifactError> {
     Ok(EnumRequirementSourceV1 {
-        module: to_stable_module(&source.module),
+        module: to_stable_module_with_context(&source.module, identity),
         range: phalcom_compiler_artifact::module_world::SpanV1 {
             start: u64::try_from(source.range.start).map_err(|_| referential("callable source start exceeds portable range"))?,
             end: u64::try_from(source.range.end).map_err(|_| referential("callable source end exceeds portable range"))?,
@@ -271,7 +278,7 @@ fn export_source_span(source: &crate::diagnostic::SemanticSourceSpan) -> Result<
     })
 }
 
-fn export_type_knowledge(knowledge: &TypeKnowledge, types: &TypeExportContext) -> Result<TypeKnowledgeV1, ArtifactError> {
+fn export_type_knowledge(knowledge: &TypeKnowledge, types: &TypeExportContext<'_>) -> Result<TypeKnowledgeV1, ArtifactError> {
     Ok(match knowledge {
         TypeKnowledge::Known(evidence) => TypeKnowledgeV1::Known {
             ty: types.ty(evidence.ty())?,
@@ -369,7 +376,7 @@ pub fn export_expansion_mode(mode: phalcom_ast::ast::ExpansionMode) -> Expansion
 
 pub fn export_static_data(
     static_data: &crate::algebraic_semantics::StaticAlgebraicDeclarationInfo,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<StaticAlgebraicDeclarationV1, ArtifactError> {
     Ok(StaticAlgebraicDeclarationV1 {
         domain: types.domain(static_data.domain)?,
@@ -377,7 +384,7 @@ pub fn export_static_data(
     })
 }
 
-pub fn export_case_environment(env: &CaseTypeEnvironment, types: &TypeExportContext) -> Result<CaseEnvironmentV1, ArtifactError> {
+pub fn export_case_environment(env: &CaseTypeEnvironment, types: &TypeExportContext<'_>) -> Result<CaseEnvironmentV1, ArtifactError> {
     let mut bindings = Vec::with_capacity(env.bindings.len());
     for (&param, &ty) in &env.bindings {
         bindings.push(CaseBindingV1 {
@@ -392,7 +399,7 @@ pub fn export_case_environment(env: &CaseTypeEnvironment, types: &TypeExportCont
     Ok(CaseEnvironmentV1 { bindings, equalities })
 }
 
-pub fn export_data_component(comp: &DataComponentSemantic, types: &TypeExportContext) -> Result<DataComponentSemanticV1, ArtifactError> {
+pub fn export_data_component(comp: &DataComponentSemantic, types: &TypeExportContext<'_>) -> Result<DataComponentSemanticV1, ArtifactError> {
     Ok(DataComponentSemanticV1 {
         local_name: comp.local_name.clone(),
         external_label: comp.external_label.clone(),
@@ -400,7 +407,7 @@ pub fn export_data_component(comp: &DataComponentSemantic, types: &TypeExportCon
     })
 }
 
-pub fn export_data_constructor_parameter(param: &DataConstructorParameter, types: &TypeExportContext) -> Result<DataConstructorParameterV1, ArtifactError> {
+pub fn export_data_constructor_parameter(param: &DataConstructorParameter, types: &TypeExportContext<'_>) -> Result<DataConstructorParameterV1, ArtifactError> {
     Ok(DataConstructorParameterV1 {
         external_label: param.external_label.clone(),
         local_name: param.local_name.clone(),
@@ -408,7 +415,7 @@ pub fn export_data_constructor_parameter(param: &DataConstructorParameter, types
     })
 }
 
-pub fn export_shape_contribution(contribution: &DataProductContribution, types: &TypeExportContext) -> Result<DataProductContributionV1, ArtifactError> {
+pub fn export_shape_contribution(contribution: &DataProductContribution, types: &TypeExportContext<'_>) -> Result<DataProductContributionV1, ArtifactError> {
     Ok(match contribution {
         DataProductContribution::Component(comp) => DataProductContributionV1::Component {
             component: export_data_component(comp, types)?,
@@ -420,7 +427,7 @@ pub fn export_shape_contribution(contribution: &DataProductContribution, types: 
     })
 }
 
-pub fn export_variant_field(field: &VariantFieldSemantic, types: &TypeExportContext) -> Result<VariantFieldV1, ArtifactError> {
+pub fn export_variant_field(field: &VariantFieldSemantic, types: &TypeExportContext<'_>) -> Result<VariantFieldV1, ArtifactError> {
     Ok(VariantFieldV1 {
         local_name: field.local_name.clone(),
         external_label: field.external_label.clone(),
@@ -430,7 +437,7 @@ pub fn export_variant_field(field: &VariantFieldSemantic, types: &TypeExportCont
 
 pub fn export_variant_constructor_parameter(
     param: &crate::enum_semantics::VariantConstructorParameter,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<VariantConstructorParameterV1, ArtifactError> {
     Ok(VariantConstructorParameterV1 {
         external_label: param.external_label.clone(),
@@ -450,7 +457,7 @@ pub fn export_variant_visibility(v: &VariantVisibility) -> VariantVisibilityV1 {
 /// Registers roots required by structural primary contracts into `TypeExportContext`
 /// prior to graph closure.
 pub fn register_structural_primary_roots(
-    types: &mut TypeExportContext,
+    types: &mut TypeExportContext<'_>,
     data_table: &DataSemanticTable,
     enum_table: &EnumSemanticTable,
     declarations: &DeclarationTypeTable,
@@ -473,7 +480,7 @@ pub fn register_structural_primary_roots(
 /// A dependency-owned declaration referenced by an owned row (a superclass, a
 /// field type) is not rooted here; it enters the closure only as structure.
 pub fn register_structural_primary_roots_scoped(
-    types: &mut TypeExportContext,
+    types: &mut TypeExportContext<'_>,
     scope: &super::projection::ArtifactProjectionScope,
     data_table: &DataSemanticTable,
     enum_table: &EnumSemanticTable,
@@ -489,7 +496,7 @@ pub fn register_structural_primary_roots_scoped(
         }
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::DeclarationShell,
-            owner: StableOwnerRef::Declaration(to_stable_declaration(decl_id)),
+            owner: StableOwnerRef::Declaration(to_stable_declaration_with_context(decl_id, types.identity_context())),
             product_subkey: 0,
         };
         types.register_type_root(lineage, key, info.form)?;
@@ -500,7 +507,7 @@ pub fn register_structural_primary_roots_scoped(
         // store through an unbudgeted local interning mutation.
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::DeclarationShell,
-            owner: StableOwnerRef::Declaration(to_stable_declaration(decl_id)),
+            owner: StableOwnerRef::Declaration(to_stable_declaration_with_context(decl_id, types.identity_context())),
             product_subkey: 1,
         };
         types.register_type_root(lineage, key, info.class_object_type)?;
@@ -512,7 +519,7 @@ pub fn register_structural_primary_roots_scoped(
         }
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::HierarchyAndAlias,
-            owner: StableOwnerRef::Declaration(to_stable_declaration(decl_id)),
+            owner: StableOwnerRef::Declaration(to_stable_declaration_with_context(decl_id, types.identity_context())),
             product_subkey: 0,
         };
         types.register_type_root(lineage, key, info.form)?;
@@ -525,7 +532,7 @@ pub fn register_structural_primary_roots_scoped(
         if let Some(template) = hierarchy.supertype_template(decl_id) {
             let key = CanonicalTypeRootKey {
                 family_tag: CanonicalRootFamilyTag::HierarchyAndAlias,
-                owner: StableOwnerRef::Declaration(to_stable_declaration(decl_id)),
+                owner: StableOwnerRef::Declaration(to_stable_declaration_with_context(decl_id, types.identity_context())),
                 product_subkey: 1,
             };
             types.register_type_root(lineage, key, template.supertype)?;
@@ -536,7 +543,7 @@ pub fn register_structural_primary_roots_scoped(
         if !scope.owns_declaration(decl_id) {
             continue;
         }
-        let owner = StableOwnerRef::Declaration(to_stable_declaration(decl_id));
+        let owner = StableOwnerRef::Declaration(to_stable_declaration_with_context(decl_id, types.identity_context()));
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::DataContract,
             owner,
@@ -549,7 +556,7 @@ pub fn register_structural_primary_roots_scoped(
         if !scope.owns_declaration(decl_id) {
             continue;
         }
-        let owner = StableOwnerRef::Declaration(to_stable_declaration(decl_id));
+        let owner = StableOwnerRef::Declaration(to_stable_declaration_with_context(decl_id, types.identity_context()));
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::EnumContract,
             owner,
@@ -562,7 +569,7 @@ pub fn register_structural_primary_roots_scoped(
         if !scope.owns_variant(var_id) {
             continue;
         }
-        let owner = StableOwnerRef::Variant(to_stable_variant(var_id));
+        let owner = StableOwnerRef::Variant(to_stable_variant_with_context(var_id, types.identity_context()));
         let key = CanonicalTypeRootKey {
             family_tag: CanonicalRootFamilyTag::VariantContract,
             owner,
@@ -591,7 +598,8 @@ mod structural_type_roots_tests {
         let mut declarations = DeclarationTypeTable::new();
         declarations.insert(header.into_type_info(None));
 
-        let mut roots = TypeExportContext::new(&source_store);
+        let artifact_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let mut roots = TypeExportContext::new(&source_store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_1));
         register_structural_primary_roots(
             &mut roots,
             &DataSemanticTable::new(),
@@ -615,7 +623,7 @@ mod structural_type_roots_tests {
 
 /// Projects all structural primary contracts into a bounded, deterministic wire DTO.
 pub fn export_structural_primary_contracts(
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     data_table: &DataSemanticTable,
     enum_table: &EnumSemanticTable,
     declarations: &DeclarationTypeTable,
@@ -641,7 +649,7 @@ pub fn export_structural_primary_contracts(
 /// survive as stable references; their contracts are not re-exported.
 #[allow(clippy::too_many_arguments)]
 pub fn export_structural_primary_contracts_scoped(
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     scope: &super::projection::ArtifactProjectionScope,
     data_table: &DataSemanticTable,
     enum_table: &EnumSemanticTable,
@@ -657,7 +665,7 @@ pub fn export_structural_primary_contracts_scoped(
     let mut generic_signatures = Vec::new();
 
     for (decl_id, info) in sorted_declarations {
-        let declaration = to_stable_declaration(decl_id);
+        let declaration = to_stable_declaration_with_context(decl_id, types.identity_context());
         let self_type = types.ty(info.form)?;
         let parameters = if let Some(sig) = &info.generic_signature {
             sig.parameters.iter().map(|&p| types.parameter(p)).collect::<Result<Vec<_>, _>>()?
@@ -683,8 +691,8 @@ pub fn export_structural_primary_contracts_scoped(
 
     for (class_id, super_id) in superclasses {
         seen_hierarchy.insert(class_id.clone());
-        let declaration = to_stable_declaration(class_id);
-        let superclass = Some(to_stable_declaration(super_id));
+        let declaration = to_stable_declaration_with_context(class_id, types.identity_context());
+        let superclass = Some(to_stable_declaration_with_context(super_id, types.identity_context()));
         let aliased_type = type_aliases.get(class_id).map(|a| types.ty(a.form)).transpose()?;
         hierarchy_and_aliases.push(HierarchyAndAliasV1 {
             declaration,
@@ -700,7 +708,7 @@ pub fn export_structural_primary_contracts_scoped(
         if seen_hierarchy.contains(alias_id) {
             continue;
         }
-        let declaration = to_stable_declaration(alias_id);
+        let declaration = to_stable_declaration_with_context(alias_id, types.identity_context());
         let aliased_type = Some(types.ty(info.form)?);
         hierarchy_and_aliases.push(HierarchyAndAliasV1 {
             declaration,
@@ -714,7 +722,7 @@ pub fn export_structural_primary_contracts_scoped(
     data_decls.sort_by(|a, b| a.0.cmp(b.0));
 
     for (_, info) in data_decls {
-        let owner = to_stable_declaration(&info.owner);
+        let owner = to_stable_declaration_with_context(&info.owner, types.identity_context());
         let root_form = types.ty(info.root_form)?;
         let generic_signature = info.generic_signature.as_ref().map(|s| export_generic_signature(s, types)).transpose()?;
         let static_data = info.static_data.as_ref().map(|s| export_static_data(s, types)).transpose()?;
@@ -756,18 +764,18 @@ pub fn export_structural_primary_contracts_scoped(
     let mut variant_contracts = Vec::new();
 
     for (_, info) in enums {
-        let owner = to_stable_declaration(&info.owner);
+        let owner = to_stable_declaration_with_context(&info.owner, types.identity_context());
         let root_form = types.ty(info.root_form)?;
         let generic_signature = info.generic_signature.as_ref().map(|s| export_generic_signature(s, types)).transpose()?;
         let static_data = info.static_data.as_ref().map(|s| export_static_data(s, types)).transpose()?;
         let default_result_type = types.ty(info.default_result_type)?;
-        let variants = info.variants.iter().map(to_stable_variant).collect();
+        let variants = info.variants.iter().map(|value| to_stable_variant_with_context(value, types.identity_context())).collect();
 
         for variant_id in info.variants.iter() {
             let Some(var_info) = enum_table.variant_info(variant_id) else {
                 return Err(referential(format!("missing variant info for {:?}", variant_id)));
             };
-            let variant = to_stable_variant(&var_info.id);
+            let variant = to_stable_variant_with_context(&var_info.id, types.identity_context());
             let variant_type = types.variant(var_info.type_handle)?;
             let shape = export_variant_shape(var_info.shape);
             let payload_kind = export_payload_kind(var_info.payload_kind);
@@ -890,6 +898,7 @@ enum CallableBindingSourceAuthority {
 fn export_binding_authority(
     origin: &crate::checker::analysis::CallableBindingOrigin,
     source: Option<&CallableBindingSourceAuthority>,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> Result<CallableBindingAuthorityV1, ArtifactError> {
     use crate::identity::SourceOwner;
 
@@ -897,10 +906,10 @@ fn export_binding_authority(
         (crate::checker::analysis::CallableBindingOrigin::BodyLocal, Some(CallableBindingSourceAuthority::Source { site, range })) => {
             let site_owner = match &site.owner {
                 SourceOwner::Module(module) => CallableAnalysisSourceOwnerV1::Module {
-                    module: to_stable_module(module),
+                    module: to_stable_module_with_context(module, identity),
                 },
                 SourceOwner::Callable(callable) => CallableAnalysisSourceOwnerV1::Callable {
-                    callable: to_stable_callable(callable),
+                    callable: to_stable_callable_with_context(callable, identity),
                 },
             };
             Ok(CallableBindingAuthorityV1::BodyLocalSource {
@@ -921,7 +930,7 @@ fn export_binding_authority(
             Err(referential("callable body-local binding lacks exact source or generated authority"))
         }
         (crate::checker::analysis::CallableBindingOrigin::ModuleValue { symbol, import }, None) => Ok(CallableBindingAuthorityV1::ModuleValue {
-            module: to_stable_module(&symbol.module),
+            module: to_stable_module_with_context(&symbol.module, identity),
             name: symbol.name.to_string(),
             import_binding: import.map(|id| id.0),
         }),
@@ -946,7 +955,7 @@ fn export_binding_budget(report: &crate::types::outcome::BudgetReport) -> Callab
     }
 }
 
-fn export_callable_block_reason(reason: &crate::types::outcome::BlockReason, types: &TypeExportContext) -> Result<CallableBlockReasonV1, ArtifactError> {
+fn export_callable_block_reason(reason: &crate::types::outcome::BlockReason, types: &TypeExportContext<'_>) -> Result<CallableBlockReasonV1, ArtifactError> {
     use crate::types::outcome::BlockReason;
     Ok(match reason {
         BlockReason::UnknownType(reason) => CallableBlockReasonV1::UnknownType {
@@ -982,7 +991,7 @@ fn export_callable_block_reason(reason: &crate::types::outcome::BlockReason, typ
 fn export_callable_expression_status(
     status: &crate::checker::analysis::AnalysisStatus,
     ordinals: &CallableAnalysisOrdinalMap,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<CallableExpressionStatusV1, ArtifactError> {
     use crate::checker::analysis::AnalysisStatus;
 
@@ -1021,7 +1030,7 @@ fn export_callable_expression_status(
 
 fn export_generic_conformance_key(
     key: &crate::generic_evidence::GenericConformanceKey,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::GenericConformanceKeyV1, ArtifactError> {
     Ok(phalcom_compiler_artifact::semantic::world::GenericConformanceKeyV1 {
         subject: export_type_term(&key.subject, types)?,
@@ -1031,9 +1040,10 @@ fn export_generic_conformance_key(
 
 fn export_callable_requirement_identity(
     requirement: &crate::traits::TraitRequirementId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> phalcom_compiler_artifact::semantic::world::CallableRequirementIdentityV1 {
     phalcom_compiler_artifact::semantic::world::CallableRequirementIdentityV1 {
-        owner: to_stable_declaration(&requirement.owner),
+        owner: to_stable_declaration_with_context(&requirement.owner, identity),
         selector: requirement.selector.encode().into_boxed_str(),
         side: match requirement.side {
             crate::identity::DispatchSide::Instance => 0,
@@ -1044,16 +1054,17 @@ fn export_callable_requirement_identity(
 
 fn export_callable_associated_type_requirement_identity(
     requirement: &crate::traits::AssociatedTypeRequirementId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeRequirementIdentityV1 {
     phalcom_compiler_artifact::semantic::world::CallableAssociatedTypeRequirementIdentityV1 {
-        owner: to_stable_declaration(&requirement.owner),
+        owner: to_stable_declaration_with_context(&requirement.owner, identity),
         index: requirement.index,
     }
 }
 
 fn export_callable_type_environment(
     environment: &crate::types::environment::TypeEnvironment,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableTypeEnvironmentV1, ArtifactError> {
     use phalcom_compiler_artifact::semantic::type_store::StaticArgumentV1;
     use phalcom_compiler_artifact::semantic::world::CallableStaticArgumentBindingV1;
@@ -1096,7 +1107,7 @@ fn export_callable_type_environment(
 
 fn export_callable_type_bindings(
     bindings: impl IntoIterator<Item = (crate::types::id::TypeParameterId, crate::types::id::TypeId)>,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<Vec<phalcom_compiler_artifact::semantic::world::CallableTypeBindingV1>, ArtifactError> {
     let mut rows = bindings
         .into_iter()
@@ -1116,7 +1127,7 @@ fn export_callable_type_bindings(
 
 fn export_callable_requirement_views<'a>(
     views: impl IntoIterator<Item = (&'a crate::traits::TraitRequirementId, &'a crate::traits::InstantiatedTraitRequirement)>,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<Vec<phalcom_compiler_artifact::semantic::world::CallableRequirementViewV1>, ArtifactError> {
     views
         .into_iter()
@@ -1125,11 +1136,14 @@ fn export_callable_requirement_views<'a>(
                 return Err(referential("callable requirement view key disagrees with its value"));
             }
             Ok(phalcom_compiler_artifact::semantic::world::CallableRequirementViewV1 {
-                requirement: export_callable_requirement_identity(requirement),
-                callable: to_stable_callable(&view.callable),
+                requirement: export_callable_requirement_identity(requirement, types.identity_context()),
+                callable: to_stable_callable_with_context(&view.callable, types.identity_context()),
                 signature: export_callable_signature(&view.signature, types)?,
                 visibility: export_visibility(view.visibility),
-                default_callable: view.default_callable.as_ref().map(to_stable_callable),
+                default_callable: view
+                    .default_callable
+                    .as_ref()
+                    .map(|callable| to_stable_callable_with_context(callable, types.identity_context())),
             })
         })
         .collect()
@@ -1140,7 +1154,7 @@ fn export_semantic_diagnostic(
     ordinals: Option<&CallableAnalysisOrdinalMap>,
     portable_explanations: Option<&BTreeMap<crate::identity::CallableId, BTreeMap<crate::identity::ExplanationId, u32>>>,
     portable_causes: Option<&BTreeMap<crate::identity::DiagnosticCauseId, u32>>,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableEvidenceDiagnosticV1, ArtifactError> {
     use crate::diagnostic::{DiagnosticGuidance, DiagnosticSeverity};
     use phalcom_compiler_artifact::semantic::world as wire;
@@ -1156,7 +1170,7 @@ fn export_semantic_diagnostic(
         .iter()
         .map(|label| {
             Ok(wire::CallableEvidenceDiagnosticLabelV1 {
-                source: export_source_span(&label.span)?,
+                source: export_source_span(&label.span, types.identity_context())?,
                 range: span(label.range)?,
                 message: label.message.clone().into_boxed_str(),
             })
@@ -1175,7 +1189,7 @@ fn export_semantic_diagnostic(
                     expected: types.ty(*expected)?,
                 },
                 DiagnosticGuidance::UseCallableShape { callable } => wire::CallableEvidenceDiagnosticGuidanceV1::UseCallableShape {
-                    callable: to_stable_callable(callable),
+                    callable: to_stable_callable_with_context(callable, types.identity_context()),
                 },
                 DiagnosticGuidance::EstablishTypeEvidence { range, expected } => wire::CallableEvidenceDiagnosticGuidanceV1::EstablishTypeEvidence {
                     range: span(*range)?,
@@ -1191,7 +1205,7 @@ fn export_semantic_diagnostic(
         .explanations
         .iter()
         .map(|reference| {
-            let callable = to_stable_callable(&reference.callable);
+            let callable = to_stable_callable_with_context(&reference.callable, types.identity_context());
             let ordinal = match ordinals {
                 Some(ordinals) => {
                     if callable != ordinals.owner {
@@ -1240,7 +1254,7 @@ fn export_semantic_diagnostic(
             DiagnosticSeverity::Hint => wire::CallableDiagnosticSeverityV1::Hint,
         },
         message: diagnostic.message.clone().into_boxed_str(),
-        primary: export_source_span(&diagnostic.primary)?,
+        primary: export_source_span(&diagnostic.primary, types.identity_context())?,
         primary_range: span(diagnostic.primary_range)?,
         labels,
         notes: diagnostic.notes.iter().cloned().map(String::into_boxed_str).collect(),
@@ -1267,18 +1281,18 @@ fn export_semantic_diagnostic(
     })
 }
 
-struct CallableConformanceEvidenceExport<'a> {
-    types: &'a TypeExportContext,
-    ordinals: Option<&'a CallableAnalysisOrdinalMap>,
-    portable_explanations: Option<&'a BTreeMap<crate::identity::CallableId, BTreeMap<crate::identity::ExplanationId, u32>>>,
-    portable_causes: Option<&'a BTreeMap<crate::identity::DiagnosticCauseId, u32>>,
+struct CallableConformanceEvidenceExport<'borrow, 'identity> {
+    types: &'borrow TypeExportContext<'identity>,
+    ordinals: Option<&'borrow CallableAnalysisOrdinalMap>,
+    portable_explanations: Option<&'borrow BTreeMap<crate::identity::CallableId, BTreeMap<crate::identity::ExplanationId, u32>>>,
+    portable_causes: Option<&'borrow BTreeMap<crate::identity::DiagnosticCauseId, u32>>,
     max_nodes: usize,
     max_depth: usize,
     active_arc_addresses: std::collections::HashSet<usize>,
     nodes: Vec<phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1>,
 }
 
-impl CallableConformanceEvidenceExport<'_> {
+impl CallableConformanceEvidenceExport<'_, '_> {
     fn push_node(&mut self, node: phalcom_compiler_artifact::semantic::world::CallableConformanceEvidenceNodeV1) -> Result<u32, ArtifactError> {
         if self.nodes.len() >= self.max_nodes {
             return Err(referential("callable conformance evidence node limit exceeded during export"));
@@ -1354,7 +1368,7 @@ impl CallableConformanceEvidenceExport<'_> {
                         .iter()
                         .map(|(requirement, selection)| {
                             Ok(wire::CallableRequirementSelectionEntryV1 {
-                                requirement: export_callable_requirement_identity(requirement),
+                                requirement: export_callable_requirement_identity(requirement, self.types.identity_context()),
                                 selection: self.selection(selection, depth + 1)?,
                             })
                         })
@@ -1365,19 +1379,19 @@ impl CallableConformanceEvidenceExport<'_> {
                             return Err(referential("exact conformance associated-type key disagrees with its binding"));
                         }
                         associated_types.push(wire::CallableExactAssociatedTypeBindingV1 {
-                            requirement: export_callable_associated_type_requirement_identity(requirement),
+                            requirement: export_callable_associated_type_requirement_identity(requirement, self.types.identity_context()),
                             value: match binding.value {
                                 crate::impls::AssociatedTypeBindingValue::Type(ty) => {
                                     wire::CallableAssociatedTypeBindingValueV1::Type { ty: self.types.ty(ty)? }
                                 }
                                 crate::impls::AssociatedTypeBindingValue::Dynamic => wire::CallableAssociatedTypeBindingValueV1::Dynamic,
                             },
-                            source_impl: to_stable_impl(&binding.source_impl),
-                            source: export_source_span(&binding.source)?,
+                            source_impl: to_stable_impl_with_context(&binding.source_impl, self.types.identity_context()),
+                            source: export_source_span(&binding.source, self.types.identity_context())?,
                         });
                     }
                     let exact_wire = wire::CallableExactConformanceEvidenceV1 {
-                        source_impl: to_stable_impl(&exact.source_impl),
+                        source_impl: to_stable_impl_with_context(&exact.source_impl, self.types.identity_context()),
                         exact_target: self.types.ty(exact.exact_target)?,
                         exact_trait_ref: export_trait_ref_identity(&exact.exact_trait_ref, self.types)?,
                         impl_environment: export_callable_type_environment(&exact.impl_environment, self.types)?,
@@ -1398,7 +1412,7 @@ impl CallableConformanceEvidenceExport<'_> {
             }
             GenericConformanceEvidence::Assumed(assumed) => self.push_node(wire::CallableConformanceEvidenceNodeV1::Assumed {
                 key: export_generic_conformance_key(&assumed.key, self.types)?,
-                owner: export_parameter_owner(&assumed.owner)?,
+                owner: export_parameter_owner(&assumed.owner, self.types.identity_context())?,
             }),
             GenericConformanceEvidence::Derived(derived) => {
                 let address = std::sync::Arc::as_ptr(derived) as usize;
@@ -1462,7 +1476,7 @@ impl CallableConformanceEvidenceExport<'_> {
                             crate::structural::OrderedProductForm::Pack => wire::CallableOrderedProductFormV1::Pack,
                             crate::structural::OrderedProductForm::PackFromPacks => wire::CallableOrderedProductFormV1::PackFromPacks,
                             crate::structural::OrderedProductForm::Data { owner } => wire::CallableOrderedProductFormV1::Data {
-                                owner: to_stable_declaration(owner),
+                                owner: to_stable_declaration_with_context(owner, self.types.identity_context()),
                             },
                         },
                     },
@@ -1470,12 +1484,12 @@ impl CallableConformanceEvidenceExport<'_> {
                         form: match form {
                             crate::structural::UnorderedProductForm::Record => wire::CallableUnorderedProductFormV1::Record,
                             crate::structural::UnorderedProductForm::Data { owner } => wire::CallableUnorderedProductFormV1::Data {
-                                owner: to_stable_declaration(owner),
+                                owner: to_stable_declaration_with_context(owner, self.types.identity_context()),
                             },
                         },
                     },
                     crate::structural::StructuralClassification::Sum { owner } => wire::CallableStructuralClassificationV1::Sum {
-                        owner: to_stable_declaration(owner),
+                        owner: to_stable_declaration_with_context(owner, self.types.identity_context()),
                     },
                 };
                 let kind = match derived.kind {
@@ -1509,15 +1523,17 @@ impl CallableConformanceEvidenceExport<'_> {
         }
         Ok(match selection {
             Native::ConformanceCallable { callable } => wire::CallableRequirementSelectionV1::ConformanceCallable {
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
             },
             Native::InherentCallable {
                 callable,
                 conditional_impl,
                 applicability,
             } => wire::CallableRequirementSelectionV1::InherentCallable {
-                callable: to_stable_callable(callable),
-                conditional_impl: conditional_impl.as_ref().map(to_stable_impl),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
+                conditional_impl: conditional_impl
+                    .as_ref()
+                    .map(|impl_id| to_stable_impl_with_context(impl_id, self.types.identity_context())),
                 applicability: applicability.as_ref().map(|value| self.inherent_specialization(value, depth + 1)).transpose()?,
             },
             Native::ConditionalInherent { candidate, pending, fallback } => wire::CallableRequirementSelectionV1::ConditionalInherent {
@@ -1529,12 +1545,12 @@ impl CallableConformanceEvidenceExport<'_> {
                     .transpose()?,
             },
             Native::DataComponent { component, specialized_type } => wire::CallableRequirementSelectionV1::DataComponent {
-                owner: to_stable_declaration(&component.owner),
+                owner: to_stable_declaration_with_context(&component.owner, self.types.identity_context()),
                 index: component.index,
                 specialized_type: self.types.ty(*specialized_type)?,
             },
             Native::TraitDefault { callable } => wire::CallableRequirementSelectionV1::TraitDefault {
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, self.types.identity_context()),
             },
         })
     }
@@ -1557,13 +1573,13 @@ impl CallableConformanceEvidenceExport<'_> {
                 return Err(referential("derived rule selection belongs to another trait"));
             }
             requirements.push(wire::CallableRequirementSelectionEntryV1 {
-                requirement: export_callable_requirement_identity(requirement),
+                requirement: export_callable_requirement_identity(requirement, self.types.identity_context()),
                 selection: self.selection(selection, depth + 1)?,
             });
         }
         Ok(wire::CallableDerivedConformanceRuleV1 {
-            impl_id: to_stable_impl(&rule.impl_id),
-            source_module: to_stable_module(&rule.source_module),
+            impl_id: to_stable_impl_with_context(&rule.impl_id, self.types.identity_context()),
+            source_module: to_stable_module_with_context(&rule.source_module, self.types.identity_context()),
             target_parameter: self.types.parameter(rule.target_parameter)?,
             target_template: self.types.ty(rule.target_template)?,
             trait_ref: export_trait_ref_identity(&rule.trait_ref, self.types)?,
@@ -1571,7 +1587,7 @@ impl CallableConformanceEvidenceExport<'_> {
             associated_type_plan: self.associated_type_plan(&rule.associated_type_plan)?,
             requirement_views: export_callable_requirement_views(rule.requirement_views.iter(), self.types)?,
             requirements,
-            source: export_source_span(&rule.source)?,
+            source: export_source_span(&rule.source, self.types.identity_context())?,
         })
     }
 
@@ -1583,7 +1599,7 @@ impl CallableConformanceEvidenceExport<'_> {
         let mut bindings = specialization.bindings.iter().map(|(&parameter, &ty)| (parameter, ty)).collect::<Vec<_>>();
         bindings.sort_unstable_by_key(|(parameter, _)| *parameter);
         Ok(phalcom_compiler_artifact::semantic::world::CallableInherentImplSpecializationV1 {
-            impl_id: to_stable_impl(&specialization.impl_id),
+            impl_id: to_stable_impl_with_context(&specialization.impl_id, self.types.identity_context()),
             receiver: self.types.ty(specialization.receiver)?,
             owner_view: self.types.ty(specialization.owner_view)?,
             bindings: export_callable_type_bindings(bindings, self.types)?,
@@ -1605,7 +1621,7 @@ impl CallableConformanceEvidenceExport<'_> {
             return Err(referential("conditional call capability applicability belongs to another implementation"));
         }
         Ok(phalcom_compiler_artifact::semantic::world::CallableConditionalSelectedCallCapabilityV1 {
-            selection: export_conditional_dispatch_selection(&capability.selection),
+                    selection: export_conditional_dispatch_selection(&capability.selection, self.types.identity_context()),
             applicability: self.inherent_specialization(&capability.applicability, depth + 1)?,
         })
     }
@@ -1620,11 +1636,11 @@ impl CallableConformanceEvidenceExport<'_> {
 
         Ok(match site {
             TraitDispatchSite::AbstractRequirement { requirement } => wire::CallableTraitDispatchSiteV1::AbstractRequirement {
-                requirement: export_callable_requirement_identity(requirement),
+                requirement: export_callable_requirement_identity(requirement, self.types.identity_context()),
             },
             TraitDispatchSite::Assumed(selection) => wire::CallableTraitDispatchSiteV1::Assumed {
                 conformance: export_generic_conformance_key(&selection.conformance, self.types)?,
-                requirement: export_callable_requirement_identity(&selection.requirement),
+                requirement: export_callable_requirement_identity(&selection.requirement, self.types.identity_context()),
                 signature: export_callable_signature(&selection.signature, self.types)?,
             },
             TraitDispatchSite::Evidenced(selection) => wire::CallableTraitDispatchSiteV1::Evidenced {
@@ -1646,16 +1662,19 @@ impl CallableConformanceEvidenceExport<'_> {
         let mut requirement_targets = Vec::with_capacity(selection.requirement_targets.len());
         for (requirement, target) in &selection.requirement_targets {
             requirement_targets.push(wire::CallableRequirementSelectionEntryV1 {
-                requirement: export_callable_requirement_identity(requirement),
+                requirement: export_callable_requirement_identity(requirement, self.types.identity_context()),
                 selection: self.selection(target, depth + 1)?,
             });
         }
         Ok(wire::CallableTraitDispatchSelectionV1 {
-            source_impl: to_stable_impl(&selection.source_impl),
+            source_impl: to_stable_impl_with_context(&selection.source_impl, self.types.identity_context()),
             exact_target: self.types.ty(selection.exact_target)?,
             exact_trait_ref: export_trait_ref_identity(&selection.exact_trait_ref, self.types)?,
-            requirement: export_callable_requirement_identity(&selection.requirement),
-            callable: selection.callable.as_ref().map(to_stable_callable),
+            requirement: export_callable_requirement_identity(&selection.requirement, self.types.identity_context()),
+            callable: selection
+                .callable
+                .as_ref()
+                .map(|callable| to_stable_callable_with_context(callable, self.types.identity_context())),
             signature: export_callable_signature(&selection.signature, self.types)?,
             evidence: self.evidence(&selection.evidence, depth + 1)?,
             selection: self.selection(&selection.selection, depth + 1)?,
@@ -1679,11 +1698,11 @@ impl CallableConformanceEvidenceExport<'_> {
             } => Portable::Evidence {
                 conformance: export_generic_conformance_key(conformance, self.types)?,
                 evidence: self.evidence(evidence, depth + 1)?,
-                requirement: export_callable_requirement_identity(requirement),
+                requirement: export_callable_requirement_identity(requirement, self.types.identity_context()),
                 signature: export_callable_signature(signature, self.types)?,
             },
             Native::AbstractRequirement { requirement, signature } => Portable::AbstractRequirement {
-                requirement: export_callable_requirement_identity(requirement),
+                requirement: export_callable_requirement_identity(requirement, self.types.identity_context()),
                 signature: export_callable_signature(signature, self.types)?,
             },
         })
@@ -1695,11 +1714,14 @@ impl CallableConformanceEvidenceExport<'_> {
         depth: usize,
     ) -> Result<phalcom_compiler_artifact::semantic::world::CallableEffectiveInherentWitnessV1, ArtifactError> {
         Ok(phalcom_compiler_artifact::semantic::world::CallableEffectiveInherentWitnessV1 {
-            callable: to_stable_callable(&witness.callable),
+            callable: to_stable_callable_with_context(&witness.callable, self.types.identity_context()),
             signature: export_callable_signature(&witness.signature, self.types)?,
             visibility: export_visibility(witness.visibility),
-            owner: to_stable_declaration(&witness.owner),
-            conditional_impl: witness.conditional_impl.as_ref().map(to_stable_impl),
+            owner: to_stable_declaration_with_context(&witness.owner, self.types.identity_context()),
+            conditional_impl: witness
+                .conditional_impl
+                .as_ref()
+                .map(|impl_id| to_stable_impl_with_context(impl_id, self.types.identity_context())),
             applicability: witness
                 .applicability
                 .as_ref()
@@ -1715,13 +1737,13 @@ impl CallableConformanceEvidenceExport<'_> {
     ) -> Result<phalcom_compiler_artifact::semantic::world::CallableInherentImplDomainV1, ArtifactError> {
         use phalcom_compiler_artifact::semantic::world::CallableInherentImplTargetV1 as Target;
         Ok(phalcom_compiler_artifact::semantic::world::CallableInherentImplDomainV1 {
-            impl_id: to_stable_impl(&domain.impl_id),
+            impl_id: to_stable_impl_with_context(&domain.impl_id, self.types.identity_context()),
             target: match &domain.target {
                 crate::impls::InherentImplTarget::Declaration(declaration) => Target::Declaration {
-                    declaration: to_stable_declaration(declaration),
+                    declaration: to_stable_declaration_with_context(declaration, self.types.identity_context()),
                 },
                 crate::impls::InherentImplTarget::ExactEnumCase(variant) => Target::ExactEnumCase {
-                    variant: to_stable_variant(variant),
+                    variant: to_stable_variant_with_context(variant, self.types.identity_context()),
                 },
             },
             head_type: self.types.ty(domain.head_type)?,
@@ -1749,13 +1771,13 @@ impl CallableConformanceEvidenceExport<'_> {
                 return Err(referential("associated-type plan key disagrees with its binding"));
             }
             bindings.push(wire::CallableAssociatedTypeBindingTemplateV1 {
-                requirement: export_callable_associated_type_requirement_identity(requirement),
+                requirement: export_callable_associated_type_requirement_identity(requirement, self.types.identity_context()),
                 value: match binding.value_template {
                     crate::impls::AssociatedTypeBindingValue::Type(ty) => wire::CallableAssociatedTypeBindingValueV1::Type { ty: self.types.ty(ty)? },
                     crate::impls::AssociatedTypeBindingValue::Dynamic => wire::CallableAssociatedTypeBindingValueV1::Dynamic,
                 },
-                source_impl: to_stable_impl(&binding.source_impl),
-                source: export_source_span(&binding.source)?,
+                source_impl: to_stable_impl_with_context(&binding.source_impl, self.types.identity_context()),
+                source: export_source_span(&binding.source, self.types.identity_context())?,
             });
         }
         let failures = plan
@@ -1771,13 +1793,16 @@ impl CallableConformanceEvidenceExport<'_> {
                     },
                     name: failure.name.clone(),
                     reason: failure.reason.clone(),
-                    source: export_source_span(&failure.source)?,
-                    requirement: failure.requirement.as_ref().map(export_callable_associated_type_requirement_identity),
+                    source: export_source_span(&failure.source, self.types.identity_context())?,
+                    requirement: failure
+                        .requirement
+                        .as_ref()
+                        .map(|requirement| export_callable_associated_type_requirement_identity(requirement, self.types.identity_context())),
                 })
             })
             .collect::<Result<Vec<_>, ArtifactError>>()?;
         Ok(wire::CallableConformanceAssociatedTypePlanV1 {
-            impl_id: to_stable_impl(&plan.impl_id),
+            impl_id: to_stable_impl_with_context(&plan.impl_id, self.types.identity_context()),
             bindings,
             failures,
             diagnostics: plan
@@ -1802,7 +1827,7 @@ impl CallableConformanceEvidenceExport<'_> {
                     .map(|failure| -> Result<wire::CallableConformanceFailureV1, ArtifactError> {
                         Ok(match failure {
                             crate::impls::ConformanceFailure::Behavioral(failure) => wire::CallableConformanceFailureV1::Behavioral {
-                                requirement: export_callable_requirement_identity(&failure.requirement),
+                                requirement: export_callable_requirement_identity(&failure.requirement, self.types.identity_context()),
                                 reason: failure.reason.clone(),
                             },
                             crate::impls::ConformanceFailure::AssociatedType(failure) => wire::CallableConformanceFailureV1::AssociatedType {
@@ -1817,8 +1842,11 @@ impl CallableConformanceEvidenceExport<'_> {
                                     },
                                     name: failure.name.clone(),
                                     reason: failure.reason.clone(),
-                                    source: export_source_span(&failure.source)?,
-                                    requirement: failure.requirement.as_ref().map(export_callable_associated_type_requirement_identity),
+                                    source: export_source_span(&failure.source, self.types.identity_context())?,
+                                    requirement: failure
+                                        .requirement
+                                        .as_ref()
+                                        .map(|requirement| export_callable_associated_type_requirement_identity(requirement, self.types.identity_context())),
                                 },
                             },
                         })
@@ -1845,7 +1873,7 @@ impl CallableConformanceEvidenceExport<'_> {
 
 fn export_binding_consistency(
     consistency: &crate::checker::binding::BindingConsistency,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<CallableBindingConsistencyV1, ArtifactError> {
     use crate::checker::binding::{AssumptionBasis, BindingConsistency};
     Ok(match consistency {
@@ -1900,7 +1928,7 @@ fn export_binding_consistency(
 
 fn export_callable_binding_contract(
     contract: &crate::checker::binding::BindingContract,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableBindingContractV1, ArtifactError> {
     use crate::checker::binding::BindingContractOrigin;
     use phalcom_compiler_artifact::semantic::world::CallableBindingContractOriginV1 as PortableOrigin;
@@ -1937,7 +1965,7 @@ fn export_callable_causal_invalidity(
 fn export_callable_flow_state(
     flow: &crate::checker::analysis::FlowStateSummary,
     ordinals: &CallableAnalysisOrdinalMap,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableFlowStateSummaryV1, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
     let mut bindings = Vec::with_capacity(flow.bindings.len());
@@ -1967,7 +1995,7 @@ fn export_callable_flow_state(
     for (field, summary) in &flow.fields {
         fields.push(wire::CallableFlowFieldSummaryV1 {
             field: wire::StaticFieldDependencyV1 {
-                owner: to_stable_declaration(&field.owner),
+                owner: to_stable_declaration_with_context(&field.owner, types.identity_context()),
                 side: to_stable_dispatch_side(field.side),
                 name: field.name.clone(),
             },
@@ -2038,7 +2066,11 @@ impl CallableAnalysisOrdinalMap {
         ]
     }
 
-    fn new(callable: &crate::identity::CallableId, analysis: &crate::checker::analysis::CallableAnalysis) -> Result<Self, ArtifactError> {
+    fn new(
+        callable: &crate::identity::CallableId,
+        analysis: &crate::checker::analysis::CallableAnalysis,
+        identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+    ) -> Result<Self, ArtifactError> {
         use crate::checker::analysis::{AnalysisStatus, CallableAnalysisStatus};
         use crate::checker::causal::CausalInvalidity;
         use crate::explain::node::EvidenceRef;
@@ -2260,7 +2292,7 @@ impl CallableAnalysisOrdinalMap {
         }
 
         Ok(Self {
-            owner: to_stable_callable(callable),
+            owner: to_stable_callable_with_context(callable, identity),
             expressions,
             bindings,
             flow_nodes,
@@ -2276,13 +2308,13 @@ fn export_callable_analysis_record(
     callable_id: &crate::identity::CallableId,
     analysis: &crate::checker::analysis::CallableAnalysis,
     binding_source_authorities: &std::collections::BTreeMap<crate::identity::BindingId, CallableBindingSourceAuthority>,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     limits: &ValidationLimits,
 ) -> Result<CallableAnalysisRecordV1, ArtifactError> {
     if analysis.callable != *callable_id {
         return Err(referential("callable analysis table key does not match its owner"));
     }
-    let ordinals = CallableAnalysisOrdinalMap::new(callable_id, analysis)?;
+    let ordinals = CallableAnalysisOrdinalMap::new(callable_id, analysis, types.identity_context())?;
     if analysis.binding_origins.len() != analysis.bindings.len()
         || analysis.binding_origins.keys().any(|binding| !ordinals.bindings.contains_key(binding))
         || ordinals.bindings.keys().any(|binding| !analysis.binding_origins.contains_key(binding))
@@ -2468,7 +2500,7 @@ fn export_callable_analysis_record(
                     .map(|binding| conformance_export.binding(binding, 0))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(CallableCallSpecializationV1 {
-                    callable: to_stable_callable(&specialization.callable),
+                    callable: to_stable_callable_with_context(&specialization.callable, types.identity_context()),
                     bindings,
                     conformances,
                 })
@@ -2494,8 +2526,11 @@ fn export_callable_analysis_record(
             ordinal: ordinals.expressions[expression_id],
             range,
             knowledge,
-            callable: expression.callable.as_ref().map(to_stable_callable),
-            conditional_dispatch: expression.conditional_dispatch.as_ref().map(export_conditional_dispatch_selection),
+            callable: expression.callable.as_ref().map(|value| to_stable_callable_with_context(value, types.identity_context())),
+            conditional_dispatch: expression
+                .conditional_dispatch
+                .as_ref()
+                .map(|selection| export_conditional_dispatch_selection(selection, types.identity_context())),
             conditional_capability,
             trait_dispatch,
             trait_dispatch_candidates,
@@ -2573,12 +2608,12 @@ fn export_callable_analysis_record(
             },
             crate::checker::causal::CausalInvalidity::Multiple => CallableCausalInvalidityV1::Multiple,
         };
-        let authority = export_binding_authority(origin, binding_source_authorities.get(binding_id))?;
+        let authority = export_binding_authority(origin, binding_source_authorities.get(binding_id), types.identity_context())?;
         bindings.push(CallableBindingRowV1 {
             ordinal: ordinals.bindings[binding_id],
             name: state.name.clone(),
             parameter: state.parameter.as_ref().map(|parameter| CallableParameterIdentityV1 {
-                callable: to_stable_callable(&parameter.callable),
+                callable: to_stable_callable_with_context(&parameter.callable, types.identity_context()),
                 index: parameter.index,
             }),
             range,
@@ -2730,12 +2765,12 @@ fn export_callable_analysis_record(
             .get(expression)
             .ok_or_else(|| referential("associated resolution references an absent owner-local expression"))?;
         let family = resolution.family.as_ref().map(|family| wire::AssociatedFamilyIdentityV1 {
-            owner: to_stable_declaration(&family.owner),
+            owner: to_stable_declaration_with_context(&family.owner, types.identity_context()),
             selector: export_associated_selector(&family.base),
         });
         let kind = match &resolution.kind {
             crate::checker::associated::AssociatedResolutionKind::ExactValue { member, value_type } => wire::CallableAssociatedResolutionKindV1::ExactValue {
-                member: export_associated_member(member),
+                member: export_associated_member(member, types.identity_context()),
                 value_type: types.ty(*value_type)?,
             },
             crate::checker::associated::AssociatedResolutionKind::StaticInvoke {
@@ -2744,8 +2779,8 @@ fn export_callable_analysis_record(
                 result_type,
                 argument_mapping,
             } => wire::CallableAssociatedResolutionKindV1::StaticInvoke {
-                member: export_associated_member(member),
-                target: export_invocation_target(target),
+                member: export_associated_member(member, types.identity_context()),
+                target: export_invocation_target(target, types.identity_context()),
                 result_type: types.ty(*result_type)?,
                 argument_mapping: argument_mapping.as_ref().map(|mapping| mapping.to_vec()),
             },
@@ -2754,7 +2789,7 @@ fn export_callable_analysis_record(
         associated_resolutions.push(wire::CallableAssociatedResolutionV1 {
             expression,
             owner_form: types.ty(resolution.owner_form)?,
-            lookup_owner: to_stable_declaration(&resolution.lookup_owner),
+            lookup_owner: to_stable_declaration_with_context(&resolution.lookup_owner, types.identity_context()),
             family,
             kind,
         });
@@ -2796,9 +2831,12 @@ fn export_callable_analysis_record(
                     crate::types::family::FamilyMemberTypeKind::Value => wire::CallableFamilyMemberKindV1::Value,
                     crate::types::family::FamilyMemberTypeKind::Callable => wire::CallableFamilyMemberKindV1::Callable,
                 },
-                target: export_invocation_target(&member.target),
+                target: export_invocation_target(&member.target, types.identity_context()),
                 callable_type: types.ty(member.callable_type)?,
-                conditional: member.conditional.as_ref().map(export_conditional_dispatch_selection),
+                conditional: member
+                    .conditional
+                    .as_ref()
+                    .map(|selection| export_conditional_dispatch_selection(selection, types.identity_context())),
                 conditional_capability,
                 trait_dispatch: member
                     .trait_dispatch
@@ -2831,7 +2869,7 @@ fn export_callable_analysis_record(
                 result_type,
             } => wire::CallableFamilyApplicationSelectionV1::Static {
                 operation: export_family_operation_shape(operation),
-                target: target.as_ref().map(export_invocation_target),
+                target: target.as_ref().map(|target| export_invocation_target(target, types.identity_context())),
                 callable_type: types.ty(*callable_type)?,
                 result_type: types.ty(*result_type)?,
             },
@@ -2841,7 +2879,10 @@ fn export_callable_analysis_record(
                     .map(|candidate| {
                         Ok(wire::CallableFamilyApplicationCandidateV1 {
                             operation: export_family_operation_shape(&candidate.operation),
-                            target: candidate.target.as_ref().map(export_invocation_target),
+                            target: candidate
+                                .target
+                                .as_ref()
+                                .map(|target| export_invocation_target(target, types.identity_context())),
                             callable_type: types.ty(candidate.callable_type)?,
                         })
                     })
@@ -2872,7 +2913,7 @@ fn export_callable_analysis_record(
                 flow: export_callable_flow_state(&exit.flow, &ordinals, types)?,
                 status: export_callable_expression_status(&exit.status, &ordinals, types)?,
                 causal_invalidity: export_callable_causal_invalidity(exit.causal_invalidity, &ordinals)?,
-                direct_result_dependency: exit.direct_result_dependency.as_ref().map(to_stable_callable),
+                direct_result_dependency: exit.direct_result_dependency.as_ref().map(|value| to_stable_callable_with_context(value, types.identity_context())),
             })
         })
         .collect::<Result<Vec<_>, ArtifactError>>()?;
@@ -2893,19 +2934,19 @@ fn export_callable_analysis_record(
                     start: u64::try_from(resolution.call_range.start).map_err(|_| referential("constructor super-call start exceeds portable range"))?,
                     end: u64::try_from(resolution.call_range.end).map_err(|_| referential("constructor super-call end exceeds portable range"))?,
                 },
-                initializer: to_stable_callable(&resolution.initializer),
+                initializer: to_stable_callable_with_context(&resolution.initializer, types.identity_context()),
             })
         })
         .transpose()?;
     let (local_proof_graph, match_resolutions, pattern_site_resolutions) = proof::export_callable_proofs(analysis, &ordinals, types)?;
     Ok(CallableAnalysisRecordV1 {
-        callable: to_stable_callable(callable_id),
+        callable: to_stable_callable_with_context(callable_id, types.identity_context()),
         body_source_owner: analysis.body_source_owner.as_ref().map(|owner| match owner {
             crate::identity::SourceOwner::Module(module) => CallableAnalysisSourceOwnerV1::Module {
-                module: to_stable_module(module),
+                module: to_stable_module_with_context(module, types.identity_context()),
             },
             crate::identity::SourceOwner::Callable(callable) => CallableAnalysisSourceOwnerV1::Callable {
-                callable: to_stable_callable(callable),
+                callable: to_stable_callable_with_context(callable, types.identity_context()),
             },
         }),
         body_range: phalcom_compiler_artifact::module_world::SpanV1 {
@@ -2950,7 +2991,7 @@ fn export_callable_analysis_record(
             .iter()
             .map(|diagnostic| export_semantic_diagnostic(diagnostic, Some(&ordinals), None, None, types))
             .collect::<Result<_, _>>()?,
-        dependencies: analysis.dependencies.iter().map(to_stable_callable).collect(),
+        dependencies: analysis.dependencies.iter().map(|value| to_stable_callable_with_context(value, types.identity_context())).collect(),
         semantic_dependencies: analysis
             .semantic_dependencies
             .iter()
@@ -2961,7 +3002,7 @@ fn export_callable_analysis_record(
 
 fn export_callable_trait_dispatch_candidate(
     candidate: &crate::trait_dispatch::TraitEvidencedMemberCandidate,
-    conformance_export: &mut CallableConformanceEvidenceExport<'_>,
+    conformance_export: &mut CallableConformanceEvidenceExport<'_, '_>,
     depth: usize,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableTraitDispatchCandidateV1, ArtifactError> {
     use crate::trait_dispatch::TraitDispatchConvergenceKey as Native;
@@ -2974,43 +3015,43 @@ fn export_callable_trait_dispatch_candidate(
     let mut requirement_targets = Vec::with_capacity(candidate.requirement_targets.len());
     for (requirement, target) in candidate.requirement_targets.iter() {
         requirement_targets.push(wire::CallableRequirementSelectionEntryV1 {
-            requirement: export_callable_requirement_identity(requirement),
+            requirement: export_callable_requirement_identity(requirement, conformance_export.types.identity_context()),
             selection: conformance_export.selection(target, depth + 1)?,
         });
     }
     let convergence = match &candidate.convergence {
         Native::Inherent(callable) => wire::CallableTraitDispatchConvergenceV1::Inherent {
-            callable: to_stable_callable(callable),
+            callable: to_stable_callable_with_context(callable, conformance_export.types.identity_context()),
         },
         Native::ConditionalInherent {
             callable,
             impl_id,
             applicability_fingerprint,
         } => wire::CallableTraitDispatchConvergenceV1::ConditionalInherent {
-            callable: to_stable_callable(callable),
-            implementation: to_stable_impl(impl_id),
+            callable: to_stable_callable_with_context(callable, conformance_export.types.identity_context()),
+            implementation: to_stable_impl_with_context(impl_id, conformance_export.types.identity_context()),
             applicability_fingerprint: applicability_fingerprint.raw(),
         },
         Native::DataComponent(component) => wire::CallableTraitDispatchConvergenceV1::DataComponent {
-            owner: to_stable_declaration(&component.owner),
+            owner: to_stable_declaration_with_context(&component.owner, conformance_export.types.identity_context()),
             index: component.index,
         },
         Native::ConformanceCallable(callable) => wire::CallableTraitDispatchConvergenceV1::ConformanceCallable {
-            callable: to_stable_callable(callable),
+            callable: to_stable_callable_with_context(callable, conformance_export.types.identity_context()),
         },
         Native::TraitDefault {
             callable,
             evidence_fingerprint,
         } => wire::CallableTraitDispatchConvergenceV1::TraitDefault {
-            callable: to_stable_callable(callable),
+            callable: to_stable_callable_with_context(callable, conformance_export.types.identity_context()),
             evidence_fingerprint: evidence_fingerprint.raw(),
         },
     };
     Ok(wire::CallableTraitDispatchCandidateV1 {
-        source_impl: to_stable_impl(&candidate.source_impl),
+        source_impl: to_stable_impl_with_context(&candidate.source_impl, conformance_export.types.identity_context()),
         exact_target: conformance_export.types.ty(candidate.exact_target)?,
         exact_trait_ref: export_trait_ref_identity(&candidate.exact_trait_ref, conformance_export.types)?,
-        requirement: export_callable_requirement_identity(&candidate.requirement),
+        requirement: export_callable_requirement_identity(&candidate.requirement, conformance_export.types.identity_context()),
         signature: export_callable_signature(&candidate.signature, conformance_export.types)?,
         evidence: conformance_export.evidence(&candidate.evidence, depth + 1)?,
         selection: conformance_export.selection(&candidate.selection, depth + 1)?,
@@ -3022,7 +3063,7 @@ fn export_callable_trait_dispatch_candidate(
 fn export_callable_contextual_realization(
     realization: &crate::checker::analysis::ContextualRealization,
     ordinals: &CallableAnalysisOrdinalMap,
-    conformance_export: &mut CallableConformanceEvidenceExport<'_>,
+    conformance_export: &mut CallableConformanceEvidenceExport<'_, '_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::CallableContextualRealizationV1, ArtifactError> {
     use crate::checker::analysis::{
         AlgebraicBasisAxis, ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource, RealizationEvaluationPlan,
@@ -3037,7 +3078,7 @@ fn export_callable_contextual_realization(
             .ok_or_else(|| referential("contextual realization references an absent owner-local expression"))
     };
     let capability = |selection: &RealizationCapabilitySelection,
-                      conformance_export: &mut CallableConformanceEvidenceExport<'_>|
+                      conformance_export: &mut CallableConformanceEvidenceExport<'_, '_>|
      -> Result<wire::CallableRealizationCapabilityV1, ArtifactError> {
         Ok(match selection {
             RealizationCapabilitySelection::Evidenced(selection) => wire::CallableRealizationCapabilityV1::Evidenced {
@@ -3045,7 +3086,7 @@ fn export_callable_contextual_realization(
             },
             RealizationCapabilitySelection::Assumed(selection) => wire::CallableRealizationCapabilityV1::Assumed {
                 conformance: export_generic_conformance_key(&selection.conformance, conformance_export.types)?,
-                requirement: export_callable_requirement_identity(&selection.requirement),
+                requirement: export_callable_requirement_identity(&selection.requirement, conformance_export.types.identity_context()),
                 signature: export_callable_signature(&selection.signature, conformance_export.types)?,
             },
         })
@@ -3119,7 +3160,11 @@ fn export_callable_contextual_realization(
     })
 }
 
-fn enum_requirement_callable(requirement: &EnumRequirement, owner: &crate::identity::DeclarationId) -> Result<StableCallableRef, ArtifactError> {
+fn enum_requirement_callable(
+    requirement: &EnumRequirement,
+    owner: &crate::identity::DeclarationId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> Result<StableCallableRef, ArtifactError> {
     let expected = crate::identity::CallableId::new(
         crate::identity::CallableOwnerId::Declaration(owner.clone()),
         requirement.id.selector.clone(),
@@ -3133,7 +3178,7 @@ fn enum_requirement_callable(requirement: &EnumRequirement, owner: &crate::ident
     {
         return Err(referential("enum requirement identity disagrees with its canonical callable signature"));
     }
-    Ok(to_stable_callable(&requirement.signature.callable))
+    Ok(to_stable_callable_with_context(&requirement.signature.callable, identity))
 }
 
 fn export_rest_mode(mode: phalcom_ast::ast::RestMode) -> u8 {
@@ -3246,7 +3291,7 @@ fn export_return_validation(validation: crate::signature::ReturnContractValidati
 
 pub(super) fn export_callable_signature(
     signature: &crate::signature::CallableSemanticSignature,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<CallableSignatureRecordV1, ArtifactError> {
     if signature.callable.owner.try_declaration().is_some_and(|owner| owner != &signature.owner) {
         return Err(referential("callable signature owner disagrees with its callable identity"));
@@ -3289,14 +3334,18 @@ pub(super) fn export_callable_signature(
             },
         };
         parameters.push(PortableCallableParameter {
-            callable: to_stable_callable(&parameter.id.callable),
+            callable: to_stable_callable_with_context(&parameter.id.callable, types.identity_context()),
             index,
             local_name: parameter.local_name.clone(),
             external_label: parameter.external_label.clone(),
             declared_type: export_declared_type_fact(&parameter.declared_type, types)?,
             rest_mode,
             contract,
-            source: parameter.source.as_ref().map(export_source_span).transpose()?,
+            source: parameter
+                .source
+                .as_ref()
+                .map(|source| export_source_span(source, types.identity_context()))
+                .transpose()?,
         });
     }
     let inferred_return = signature
@@ -3331,8 +3380,8 @@ pub(super) fn export_callable_signature(
         ));
     }
     Ok(CallableSignatureRecordV1 {
-        callable: to_stable_callable(&signature.callable),
-        owner: to_stable_declaration(&signature.owner),
+        callable: to_stable_callable_with_context(&signature.callable, types.identity_context()),
+        owner: to_stable_declaration_with_context(&signature.owner, types.identity_context()),
         side,
         selector: signature.selector.to_string().into_boxed_str(),
         generics,
@@ -3340,7 +3389,11 @@ pub(super) fn export_callable_signature(
         declared_return: export_declared_type_fact(&signature.declared_return, types)?,
         return_validation: export_return_validation(signature.return_validation),
         inferred_return,
-        source: signature.source.as_ref().map(export_source_span).transpose()?,
+        source: signature
+            .source
+            .as_ref()
+            .map(|source| export_source_span(source, types.identity_context()))
+            .transpose()?,
         implementation: match signature.implementation {
             phalcom_common::modifier::ImplementationKind::Phalcom => ImplementationKindV1::Phalcom,
             phalcom_common::modifier::ImplementationKind::Native => ImplementationKindV1::Native,
@@ -3358,7 +3411,7 @@ pub(super) fn export_callable_signature(
 fn export_callable_definition(
     definition: &crate::impls::EffectiveCallableDefinition,
     store: &crate::types::store::TypeStore,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<CallableDefinitionRecordV1, ArtifactError> {
     use crate::impls::{CallableDefinitionBodyProvenance, CallableDefinitionOrigin};
 
@@ -3368,10 +3421,10 @@ fn export_callable_definition(
     let origin = match &definition.origin {
         CallableDefinitionOrigin::PrimaryDeclaration => CallableDefinitionOriginV1::PrimaryDeclaration,
         CallableDefinitionOrigin::InherentImpl(impl_id) => CallableDefinitionOriginV1::InherentImpl {
-            impl_id: to_stable_impl(impl_id),
+            impl_id: to_stable_impl_with_context(impl_id, types.identity_context()),
         },
         CallableDefinitionOrigin::ConformanceWitness(impl_id) => CallableDefinitionOriginV1::ConformanceWitness {
-            impl_id: to_stable_impl(impl_id),
+            impl_id: to_stable_impl_with_context(impl_id, types.identity_context()),
         },
     };
     let body_provenance = match &definition.body_provenance {
@@ -3470,7 +3523,7 @@ fn export_callable_definition(
     }
 
     Ok(CallableDefinitionRecordV1 {
-        callable: to_stable_callable(&definition.callable),
+        callable: to_stable_callable_with_context(&definition.callable, types.identity_context()),
         origin,
         source_member_index: u32::try_from(definition.source_member_index).map_err(|_| referential("callable source member index exceeds portable range"))?,
         signature: export_callable_signature(&definition.signature, types)?,
@@ -3482,7 +3535,7 @@ fn export_callable_definition(
 pub(super) fn export_enum_requirements(
     requirements: &EnumRequirementTable,
     enum_semantics: &EnumSemanticTable,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<Vec<EnumRequirementOwnerV1>, ArtifactError> {
     export_enum_requirements_scoped(requirements, enum_semantics, &super::projection::ArtifactProjectionScope::whole_image(), types)
 }
@@ -3493,7 +3546,7 @@ pub(super) fn export_enum_requirements_scoped(
     requirements: &EnumRequirementTable,
     enum_semantics: &EnumSemanticTable,
     scope: &super::projection::ArtifactProjectionScope,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<Vec<EnumRequirementOwnerV1>, ArtifactError> {
     let owned_enums = enum_semantics.enums.iter().filter(|(id, _)| scope.owns_declaration(id)).count();
     let owned_requirements = requirements.requirements.iter().filter(|(id, _)| scope.owns_declaration(id)).count();
@@ -3511,7 +3564,7 @@ pub(super) fn export_enum_requirements_scoped(
             .case_statuses
             .get(owner)
             .ok_or_else(|| referential("enum requirement owner has no case-status table entry"))?;
-        let stable_owner = to_stable_declaration(owner);
+        let stable_owner = to_stable_declaration_with_context(owner, types.identity_context());
 
         let mut requirement_records = Vec::with_capacity(owner_requirements.len());
         for (source_order, requirement) in owner_requirements.iter().enumerate() {
@@ -3524,7 +3577,7 @@ pub(super) fn export_enum_requirements_scoped(
                         return Err(referential("enum requirement source span disagrees with its owner"));
                     }
                     Ok(EnumRequirementSourceV1 {
-                        module: to_stable_module(&source.module),
+                        module: to_stable_module_with_context(&source.module, types.identity_context()),
                         range: phalcom_compiler_artifact::module_world::SpanV1 {
                             start: u64::try_from(source.range.start).map_err(|_| referential("enum requirement span start exceeds portable range"))?,
                             end: u64::try_from(source.range.end).map_err(|_| referential("enum requirement span end exceeds portable range"))?,
@@ -3533,7 +3586,7 @@ pub(super) fn export_enum_requirements_scoped(
                 })
                 .transpose()?;
             requirement_records.push(EnumRequirementRecordV1 {
-                requirement: enum_requirement_callable(requirement, owner)?,
+                requirement: enum_requirement_callable(requirement, owner, types.identity_context())?,
                 signature: export_callable_signature(&requirement.signature, types)?,
                 source_order,
                 source,
@@ -3560,17 +3613,17 @@ pub(super) fn export_enum_requirements_scoped(
                 }
                 let portable_status = match &status.status {
                     CaseRequirementStatus::Satisfied { implementation } => CaseRequirementStatusV1::Satisfied {
-                        implementation: to_stable_callable(implementation),
+                        implementation: to_stable_callable_with_context(implementation, types.identity_context()),
                     },
                     CaseRequirementStatus::Missing => CaseRequirementStatusV1::Missing,
                     CaseRequirementStatus::Incompatible { implementation } => CaseRequirementStatusV1::Incompatible {
-                        implementation: to_stable_callable(implementation),
+                        implementation: to_stable_callable_with_context(implementation, types.identity_context()),
                     },
                     CaseRequirementStatus::Blocked => CaseRequirementStatusV1::Blocked,
                 };
                 status_records.push(CaseRequirementResultV1 {
-                    variant: to_stable_variant(variant),
-                    requirement: enum_requirement_callable(requirement, owner)?,
+                    variant: to_stable_variant_with_context(variant, types.identity_context()),
+                    requirement: enum_requirement_callable(requirement, owner, types.identity_context())?,
                     requirement_order: u32::try_from(requirement_order).map_err(|_| referential("enum requirement order exceeds portable range"))?,
                     variant_order: u32::try_from(variant_order).map_err(|_| referential("enum variant order exceeds portable range"))?,
                     status: portable_status,
@@ -3608,7 +3661,7 @@ fn export_associated_selector(base: &phalcom_common::selector::SelectorBase) -> 
     }
 }
 
-fn export_type_member_domain(domain: crate::types::type_member::TypeMemberDomain, types: &TypeExportContext) -> Result<TypeMemberDomainV1, ArtifactError> {
+fn export_type_member_domain(domain: crate::types::type_member::TypeMemberDomain, types: &TypeExportContext<'_>) -> Result<TypeMemberDomainV1, ArtifactError> {
     Ok(match domain {
         crate::types::type_member::TypeMemberDomain::Kind(kind) => TypeMemberDomainV1::Kind { kind: types.kind(kind)? },
         crate::types::type_member::TypeMemberDomain::ValueType(ty) => TypeMemberDomainV1::ValueType { ty: types.ty(ty)? },
@@ -3660,64 +3713,68 @@ fn export_associated_family_kind(kind: crate::associated::AssociatedFamilyKind) 
 
 fn export_associated_static_domain_declaration(
     declaration: &crate::identity::AssociatedStaticDomainDeclarationId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> StableAssociatedStaticDomainDeclarationRef {
     StableAssociatedStaticDomainDeclarationRef {
-        owner: to_stable_declaration(&declaration.owner),
+        owner: to_stable_declaration_with_context(&declaration.owner, identity),
         name: declaration.name.clone(),
     }
 }
 
-fn export_static_case_domain(domain: &crate::identity::StaticDomainDeclarationId) -> phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1 {
+fn export_static_case_domain(
+    domain: &crate::identity::StaticDomainDeclarationId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1 {
     use phalcom_compiler_artifact::semantic::world::StaticCaseDomainV1;
     match domain {
         crate::identity::StaticDomainDeclarationId::Nominal(declaration) => StaticCaseDomainV1::Nominal {
-            declaration: to_stable_declaration(declaration),
+            declaration: to_stable_declaration_with_context(declaration, identity),
         },
         crate::identity::StaticDomainDeclarationId::Associated(declaration) => StaticCaseDomainV1::Associated {
-            declaration: export_associated_static_domain_declaration(declaration),
+            declaration: export_associated_static_domain_declaration(declaration, identity),
         },
     }
 }
 
 fn export_static_semantic_dependency(
     dependency: &crate::checker::analysis::SemanticDependency,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::StaticSemanticDependencyV1, ArtifactError> {
     use crate::checker::analysis::SemanticDependency as Dependency;
     use phalcom_compiler_artifact::semantic::world::{ConformanceTargetV1, StaticConstantSymbolV1, StaticSemanticDependencyV1 as Portable};
     Ok(match dependency {
         Dependency::DeclarationShell(owner) => Portable::DeclarationShell {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::TraitHeader(owner) => Portable::TraitHeader {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::CallableSignature(callable) => Portable::CallableSignature {
-            callable: to_stable_callable(callable),
+            callable: to_stable_callable_with_context(callable, types.identity_context()),
         },
         Dependency::FieldSignature(field) => Portable::FieldSignature {
             field: phalcom_compiler_artifact::semantic::world::StaticFieldDependencyV1 {
-                owner: to_stable_declaration(&field.owner),
+                owner: to_stable_declaration_with_context(&field.owner, types.identity_context()),
                 side: to_stable_dispatch_side(field.side),
                 name: field.name.clone(),
             },
         },
         Dependency::DeclarationSurface(owner) => Portable::DeclarationSurface {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::TraitSurface(owner) => Portable::TraitSurface {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::ConformanceDispatch(implementation) => Portable::ConformanceDispatch {
-            implementation: to_stable_impl(implementation),
+            implementation: to_stable_impl_with_context(implementation, types.identity_context()),
         },
         Dependency::TraitDispatchBucket(bucket) => Portable::TraitDispatchBucket {
             target: match &bucket.target_family {
                 crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(declaration) => ConformanceTargetV1::Declaration {
-                    declaration: to_stable_declaration(declaration),
+                    declaration: to_stable_declaration_with_context(declaration, types.identity_context()),
                 },
                 crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => ConformanceTargetV1::ExactEnumCase {
-                    variant: to_stable_variant(variant),
+                    variant: to_stable_variant_with_context(variant, types.identity_context()),
                 },
             },
             selector: export_exact_selector(&bucket.selector),
@@ -3728,67 +3785,70 @@ fn export_static_semantic_dependency(
             trait_ref: export_trait_ref_identity(&key.trait_ref, types)?,
         },
         Dependency::HierarchyEdge(owner) => Portable::HierarchyEdge {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::LinkedInterface(module) => Portable::LinkedInterface {
-            module: to_stable_module(module),
+            module: to_stable_module_with_context(module, types.identity_context()),
         },
         Dependency::DataDeclaration(owner) => Portable::DataDeclaration {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::EnumDeclaration(owner) => Portable::EnumDeclaration {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::AssociatedSurface(owner) => Portable::AssociatedSurface {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::TypeMemberDeclaration(member) => Portable::TypeMemberDeclaration {
-            owner: to_stable_declaration(&member.owner),
+            owner: to_stable_declaration_with_context(&member.owner, types.identity_context()),
             selector: export_type_member_selector(&member.selector),
         },
         Dependency::StaticDomainCaseCatalog(domain) => Portable::StaticDomainCaseCatalog {
-            domain: export_static_case_domain(domain),
+            domain: export_static_case_domain(domain, types.identity_context()),
         },
         Dependency::StaticCaseSignature(case) => Portable::StaticCaseSignature {
-            domain: export_static_case_domain(&case.domain),
+            domain: export_static_case_domain(&case.domain, types.identity_context()),
             selector: export_exact_selector(&case.selector),
         },
         Dependency::StaticDefinition(owner) => Portable::StaticDefinition {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::StaticConstant(id) => Portable::StaticConstant {
             symbol: StaticConstantSymbolV1 {
-                module: to_stable_module(&id.0.module),
+                module: to_stable_module_with_context(&id.0.module, types.identity_context()),
                 name: id.0.name.clone(),
             },
         },
         Dependency::ModuleStaticBindingCatalog(module) => Portable::ModuleStaticBindingCatalog {
-            module: to_stable_module(module),
+            module: to_stable_module_with_context(module, types.identity_context()),
         },
         Dependency::ConstructorInitialization(owner) => Portable::ConstructorInitialization {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
         },
         Dependency::ResolvedImport(site) => Portable::ResolvedImport {
-            module: to_stable_module(&site.importer),
+            module: to_stable_module_with_context(&site.importer, types.identity_context()),
             local_id: site.local.0,
         },
         Dependency::LinkedName(module, name) => Portable::LinkedName {
-            module: to_stable_module(module),
+            module: to_stable_module_with_context(module, types.identity_context()),
             name: name.clone().into_boxed_str(),
         },
         Dependency::PublicExport(module, name) => Portable::PublicExport {
-            module: to_stable_module(module),
+            module: to_stable_module_with_context(module, types.identity_context()),
             name: name.clone().into_boxed_str(),
         },
         Dependency::ModuleStaticBindings(module) => Portable::ModuleStaticBindings {
-            module: to_stable_module(module),
+            module: to_stable_module_with_context(module, types.identity_context()),
         },
     })
 }
 
-fn export_static_constant_symbol(id: &crate::static_constant::StaticConstantId) -> phalcom_compiler_artifact::semantic::world::StaticConstantSymbolV1 {
+fn export_static_constant_symbol(
+    id: &crate::static_constant::StaticConstantId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> phalcom_compiler_artifact::semantic::world::StaticConstantSymbolV1 {
     phalcom_compiler_artifact::semantic::world::StaticConstantSymbolV1 {
-        module: to_stable_module(&id.0.module),
+        module: to_stable_module_with_context(&id.0.module, identity),
         name: id.0.name.clone(),
     }
 }
@@ -3800,23 +3860,26 @@ fn export_source_range(range: phalcom_common::range::SourceRange) -> Result<phal
     })
 }
 
-fn export_associated_member(member: &crate::associated::AssociatedMemberId) -> AssociatedMemberV1 {
+fn export_associated_member(
+    member: &crate::associated::AssociatedMemberId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> AssociatedMemberV1 {
     match member {
         crate::associated::AssociatedMemberId::Variant(variant) => AssociatedMemberV1::Variant {
-            variant: to_stable_variant(variant),
+            variant: to_stable_variant_with_context(variant, identity),
         },
         crate::associated::AssociatedMemberId::DataConstructor(constructor) => AssociatedMemberV1::DataConstructor {
-            owner: to_stable_declaration(&constructor.owner),
+            owner: to_stable_declaration_with_context(&constructor.owner, identity),
         },
         crate::associated::AssociatedMemberId::DataComponent(component) => AssociatedMemberV1::DataComponent {
-            owner: to_stable_declaration(&component.owner),
+            owner: to_stable_declaration_with_context(&component.owner, identity),
             index: component.index,
         },
         crate::associated::AssociatedMemberId::StaticDomain(declaration) => AssociatedMemberV1::StaticDomain {
-            declaration: export_associated_static_domain_declaration(declaration),
+            declaration: export_associated_static_domain_declaration(declaration, identity),
         },
         crate::associated::AssociatedMemberId::TypeMember(member) => AssociatedMemberV1::TypeMember {
-            owner: to_stable_declaration(&member.owner),
+            owner: to_stable_declaration_with_context(&member.owner, identity),
             selector: export_type_member_selector(&member.selector),
         },
     }
@@ -3881,25 +3944,31 @@ fn export_selector_pattern(pattern: &phalcom_common::selector::SelectorPattern) 
     }
 }
 
-fn export_invocation_target(target: &crate::identity::InvocationTargetId) -> InvocationTargetV1 {
+fn export_invocation_target(
+    target: &crate::identity::InvocationTargetId,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> InvocationTargetV1 {
     match target {
         crate::identity::InvocationTargetId::Behavioral(callable) => InvocationTargetV1::Behavioral {
-            callable: to_stable_callable(callable),
+            callable: to_stable_callable_with_context(callable, identity),
         },
         crate::identity::InvocationTargetId::VariantConstructor(constructor) => InvocationTargetV1::VariantConstructor {
-            variant: to_stable_variant(&constructor.variant),
+            variant: to_stable_variant_with_context(&constructor.variant, identity),
         },
         crate::identity::InvocationTargetId::DataConstructor(constructor) => InvocationTargetV1::DataConstructor {
-            owner: to_stable_declaration(&constructor.owner),
+            owner: to_stable_declaration_with_context(&constructor.owner, identity),
         },
     }
 }
 
-fn export_conditional_dispatch_selection(selection: &crate::dispatch::ConditionalDispatchSelection) -> ConditionalDispatchSelectionV1 {
+fn export_conditional_dispatch_selection(
+    selection: &crate::dispatch::ConditionalDispatchSelection,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> ConditionalDispatchSelectionV1 {
     ConditionalDispatchSelectionV1 {
-        impl_id: to_stable_impl(&selection.impl_id),
-        callable: to_stable_callable(&selection.callable),
-        declaring_owner: to_stable_declaration(&selection.declaring_owner),
+        impl_id: to_stable_impl_with_context(&selection.impl_id, identity),
+        callable: to_stable_callable_with_context(&selection.callable, identity),
+        declaring_owner: to_stable_declaration_with_context(&selection.declaring_owner, identity),
         side: match selection.side {
             crate::identity::DispatchSide::Instance => 0,
             crate::identity::DispatchSide::Class => 1,
@@ -3909,7 +3978,7 @@ fn export_conditional_dispatch_selection(selection: &crate::dispatch::Conditiona
 
 pub(super) fn export_semantic_denotation(
     denotation: &crate::types::denotation::SemanticDenotation,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<SemanticDenotationV1, ArtifactError> {
     use crate::types::denotation::{AssociatedValueDenotation, SemanticDenotation};
     Ok(match denotation {
@@ -3931,9 +4000,9 @@ pub(super) fn export_semantic_denotation(
                     target,
                 } => AssociatedValueDenotationV1::Exact {
                     owner_form: types.ty(*owner_form)?,
-                    lookup_owner: to_stable_declaration(lookup_owner),
-                    member: export_associated_member(member),
-                    target: target.as_ref().as_ref().map(export_invocation_target),
+                    lookup_owner: to_stable_declaration_with_context(lookup_owner, types.identity_context()),
+                    member: export_associated_member(member, types.identity_context()),
+                    target: target.as_ref().as_ref().map(|value| export_invocation_target(value, types.identity_context())),
                 },
                 AssociatedValueDenotation::Family {
                     owner_form,
@@ -3942,17 +4011,17 @@ pub(super) fn export_semantic_denotation(
                     members,
                 } => AssociatedValueDenotationV1::Family {
                     owner_form: types.ty(*owner_form)?,
-                    lookup_owner: to_stable_declaration(lookup_owner),
+                    lookup_owner: to_stable_declaration_with_context(lookup_owner, types.identity_context()),
                     family: AssociatedFamilyIdentityV1 {
-                        owner: to_stable_declaration(&family.owner),
+                        owner: to_stable_declaration_with_context(&family.owner, types.identity_context()),
                         selector: export_associated_selector(&family.base),
                     },
                     members: members
                         .iter()
                         .map(|member| CapturedAssociatedMemberV1 {
                             operation: export_family_operation_shape(&member.operation),
-                            member: export_associated_member(&member.member),
-                            target: member.target.as_ref().map(export_invocation_target),
+                            member: export_associated_member(&member.member, types.identity_context()),
+                            target: member.target.as_ref().map(|value| export_invocation_target(value, types.identity_context())),
                         })
                         .collect(),
                 },
@@ -3975,8 +4044,8 @@ pub(super) fn export_semantic_denotation(
                     .iter()
                     .map(|member| CapturedBehavioralMemberV1 {
                         operation: export_family_operation_shape(&member.operation),
-                        target: export_invocation_target(&member.target),
-                        conditional: member.conditional.as_ref().map(export_conditional_dispatch_selection),
+                        target: export_invocation_target(&member.target, types.identity_context()),
+                        conditional: member.conditional.as_ref().map(|value| export_conditional_dispatch_selection(value, types.identity_context())),
                     })
                     .collect(),
             },
@@ -3994,7 +4063,7 @@ pub(super) fn export_associated_authority(
         std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>,
     >,
     surface_products: &crate::associated::AssociatedFamilyTable,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<ExportedAssociatedAuthority, ArtifactError> {
     export_associated_authority_scoped(type_member_products, static_domain_products, surface_products, &super::projection::ArtifactProjectionScope::whole_image(), types)
 }
@@ -4011,7 +4080,7 @@ pub(super) fn export_associated_authority_scoped(
     >,
     surface_products: &crate::associated::AssociatedFamilyTable,
     scope: &super::projection::ArtifactProjectionScope,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
 ) -> Result<ExportedAssociatedAuthority, ArtifactError> {
     let mut type_member_products = type_member_products.iter().filter(|(id, _)| scope.owns_type_member(id)).collect::<Vec<_>>();
     type_member_products.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
@@ -4032,7 +4101,7 @@ pub(super) fn export_associated_authority_scoped(
             })
             .collect::<Result<Vec<_>, ArtifactError>>()?;
         type_member_declarations.push(TypeMemberDeclarationRecordV1 {
-            owner: to_stable_declaration(&id.owner),
+            owner: to_stable_declaration_with_context(&id.owner, types.identity_context()),
             selector: export_type_member_selector(&id.selector),
             parameters,
             result_domain: export_type_member_domain(product.signature.result_domain, types)?,
@@ -4047,7 +4116,7 @@ pub(super) fn export_associated_authority_scoped(
             return Err(referential("associated static-domain identity does not match its checked product"));
         }
         associated_static_domains.push(AssociatedStaticDomainRecordV1 {
-            declaration: export_associated_static_domain_declaration(id),
+            declaration: export_associated_static_domain_declaration(id, types.identity_context()),
             domain: types.domain(product.domain)?,
             constructors: product
                 .constructors
@@ -4072,11 +4141,15 @@ pub(super) fn export_associated_authority_scoped(
             families.push(AssociatedFamilyRecordV1 {
                 selector: export_associated_selector(base),
                 kind: export_associated_family_kind(family.kind),
-                members: family.members.iter().map(export_associated_member).collect(),
+                members: family
+                    .members
+                    .iter()
+                    .map(|member| export_associated_member(member, types.identity_context()))
+                    .collect(),
             });
         }
         associated_surfaces.push(AssociatedSurfaceRecordV1 {
-            owner: to_stable_declaration(owner),
+            owner: to_stable_declaration_with_context(owner, types.identity_context()),
             families,
         });
     }
@@ -4093,12 +4166,17 @@ pub(super) fn export_associated_authority_scoped(
 /// Canonical Universe convenience; package artifacts use [`export_semantic_world_scoped`].
 pub fn export_semantic_world(
     snapshot: &SemanticSnapshot,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     statics: &StaticExportContext,
     limits: &ValidationLimits,
 ) -> Result<SemanticWorldV3, ArtifactError> {
     let scope = super::projection::ArtifactProjectionScope::whole_image();
-    export_semantic_world_scoped(super::projection::ArtifactSemanticProjection::new(snapshot, &scope), types, statics, limits)
+    export_semantic_world_scoped(
+        super::projection::ArtifactSemanticProjection::new(snapshot, &scope, *types.identity_context()),
+        types,
+        statics,
+        limits,
+    )
 }
 
 /// Exports exactly the primary semantic rows the projection's scope owns.
@@ -4109,7 +4187,7 @@ pub fn export_semantic_world(
 /// `types` and `statics` must have been rooted through the same scope.
 pub fn export_semantic_world_scoped(
     projection: super::projection::ArtifactSemanticProjection<'_>,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     statics: &StaticExportContext,
     limits: &ValidationLimits,
 ) -> Result<SemanticWorldV3, ArtifactError> {
@@ -4117,7 +4195,7 @@ pub fn export_semantic_world_scoped(
 
     let snapshot = projection.snapshot();
     let scope = projection.scope();
-    validate_semantic_world_export_coverage(snapshot, scope)?;
+    validate_semantic_world_export_coverage(snapshot, scope, projection.identity_context())?;
 
     let type_graph = types.project_graph(&snapshot.store, limits)?;
     let structural_contracts = export_structural_primary_contracts_scoped(
@@ -4133,11 +4211,11 @@ pub fn export_semantic_world_scoped(
     let static_values = statics.project_graph(snapshot.static_values.as_ref(), types, limits)?;
 
     let mut ordered_analyses = snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)).collect::<Vec<_>>();
-    ordered_analyses.sort_unstable_by(|(left, _), (right, _)| to_stable_callable(left).cmp(&to_stable_callable(right)));
+    ordered_analyses.sort_unstable_by(|(left, _), (right, _)| to_stable_callable_with_context(left, projection.identity_context()).cmp(&to_stable_callable_with_context(right, projection.identity_context())));
     let mut portable_explanations = BTreeMap::new();
     let mut portable_causes = BTreeMap::new();
     for (callable, analysis) in ordered_analyses {
-        let ordinals = CallableAnalysisOrdinalMap::new(callable, analysis)?;
+        let ordinals = CallableAnalysisOrdinalMap::new(callable, analysis, projection.identity_context())?;
         portable_explanations.insert(callable.clone(), ordinals.explanations);
         for cause in ordinals.diagnostic_causes.keys() {
             if !portable_causes.contains_key(cause) {
@@ -4148,7 +4226,7 @@ pub fn export_semantic_world_scoped(
     }
 
     let mut ordered_witness_plans = snapshot.conformance_witness_plans.iter().filter(|(id, _)| scope.owns_impl(id)).collect::<Vec<_>>();
-    ordered_witness_plans.sort_unstable_by(|(left, _), (right, _)| to_stable_impl(left).cmp(&to_stable_impl(right)));
+    ordered_witness_plans.sort_unstable_by(|(left, _), (right, _)| to_stable_impl_with_context(left, projection.identity_context()).cmp(&to_stable_impl_with_context(right, projection.identity_context())));
     for (_, plan) in &ordered_witness_plans {
         for diagnostic in plan.diagnostics.iter().chain(plan.associated_type_plan.diagnostics.iter()) {
             if let Some(cause) = diagnostic.root_cause
@@ -4171,7 +4249,7 @@ pub fn export_semantic_world_scoped(
     }
 
     let mut ordered_static_definitions = snapshot.static_definitions.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
-    ordered_static_definitions.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration(left).cmp(&to_stable_declaration(right)));
+    ordered_static_definitions.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration_with_context(left, projection.identity_context()).cmp(&to_stable_declaration_with_context(right, projection.identity_context())));
     for (_, product) in &ordered_static_definitions {
         for diagnostic in product.diagnostics.iter() {
             if let Some(cause) = diagnostic.root_cause
@@ -4210,7 +4288,7 @@ pub fn export_semantic_world_scoped(
             if alias.declaration != *owner || snapshot.type_aliases.get(owner) != Some(alias.as_ref()) {
                 return Err(referential("static definition alias projection disagrees with structural alias authority"));
             }
-            Some(to_stable_declaration(owner))
+            Some(to_stable_declaration_with_context(owner, projection.identity_context()))
         } else {
             None
         };
@@ -4227,7 +4305,7 @@ pub fn export_semantic_world_scoped(
             .map(|diagnostic| export_semantic_diagnostic(diagnostic, None, Some(&portable_explanations), Some(&portable_causes), types))
             .collect::<Result<Vec<_>, _>>()?;
         static_definitions.push(wire::StaticDefinitionRecordV1 {
-            id: to_stable_declaration(owner),
+            id: to_stable_declaration_with_context(owner, projection.identity_context()),
             signature,
             source: export_source_range(product.definition.source_range)?,
             alias_info,
@@ -4264,12 +4342,12 @@ pub fn export_semantic_world_scoped(
         let static_constant_reads = authority
             .static_constant_reads
             .iter()
-            .map(|symbol| export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())))
+            .map(|symbol| export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone()), projection.identity_context()))
             .collect();
         let record_key_static_constant_reads = authority
             .record_key_static_constant_reads
             .iter()
-            .map(|symbol| export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())))
+            .map(|symbol| export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone()), projection.identity_context()))
             .collect();
         let diagnostics = product
             .diagnostics
@@ -4277,7 +4355,7 @@ pub fn export_semantic_world_scoped(
             .map(|diagnostic| export_semantic_diagnostic(diagnostic, None, Some(&portable_explanations), Some(&portable_causes), types))
             .collect::<Result<Vec<_>, _>>()?;
         static_constants.push(wire::StaticConstantRecordV1 {
-            symbol: export_static_constant_symbol(owner),
+            symbol: export_static_constant_symbol(owner, projection.identity_context()),
             declaration_source: export_source_range(product.declaration_range)?,
             initializer_source: export_source_range(product.initializer_range)?,
             input_fingerprint: authority.input_fingerprint.raw(),
@@ -4310,15 +4388,15 @@ pub fn export_semantic_world_scoped(
             if analysis.bindings.get(&fact.source_binding) != Some(&fact.state) {
                 return Err(referential("module static binding state disagrees with its callable owner row"));
             }
-            let ordinals = CallableAnalysisOrdinalMap::new(&fact.source_body, analysis)?;
+            let ordinals = CallableAnalysisOrdinalMap::new(&fact.source_body, analysis, projection.identity_context())?;
             let source_binding_ordinal = ordinals
                 .bindings
                 .get(&fact.source_binding)
                 .copied()
                 .ok_or_else(|| referential("module static binding references an absent owner-local binding ordinal"))?;
             bindings.push(wire::ModuleStaticBindingRecordV1 {
-                symbol: export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())),
-                source_body: to_stable_callable(&fact.source_body),
+                symbol: export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone()), projection.identity_context()),
+                source_body: to_stable_callable_with_context(&fact.source_body, projection.identity_context()),
                 source_binding_ordinal,
                 phase: match fact.phase {
                     crate::module_bindings::ModuleBindingPhase::StaticConstant => wire::ModuleStaticBindingPhaseV1::StaticConstant,
@@ -4332,11 +4410,11 @@ pub fn export_semantic_world_scoped(
             .visible_symbol_bindings()
             .map(|(name, symbol)| wire::ModuleStaticBindingVisibleNameV1 {
                 name: name.into(),
-                symbol: export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone())),
+                symbol: export_static_constant_symbol(&crate::static_constant::StaticConstantId(symbol.clone()), projection.identity_context()),
             })
             .collect();
         module_static_bindings.push(wire::ModuleStaticBindingIndexV1 {
-            module: to_stable_module(module),
+            module: to_stable_module_with_context(module, projection.identity_context()),
             bindings,
             visible_names,
         });
@@ -4347,14 +4425,14 @@ pub fn export_semantic_world_scoped(
         if owner != &plan.impl_id || plan.associated_type_plan.impl_id != plan.impl_id {
             return Err(referential("conformance witness plan identity disagrees with its owner"));
         }
-        let impl_id = to_stable_impl(&plan.impl_id);
-        let source_module = to_stable_module(&plan.source_module);
+        let impl_id = to_stable_impl_with_context(&plan.impl_id, projection.identity_context());
+        let source_module = to_stable_module_with_context(&plan.source_module, projection.identity_context());
         let mut trait_args = Vec::with_capacity(plan.trait_ref_template.arguments.len());
         for a in &plan.trait_ref_template.arguments {
             trait_args.push(types.ty(*a)?);
         }
         let trait_ref_template = TraitRefV1 {
-            declaration: to_stable_declaration(&plan.trait_ref_template.declaration),
+            declaration: to_stable_declaration_with_context(&plan.trait_ref_template.declaration, projection.identity_context()),
             arguments: trait_args,
         };
         let target_template = types.ty(plan.target_template)?;
@@ -4380,7 +4458,7 @@ pub fn export_semantic_world_scoped(
                 return Err(referential("witness requirement selection belongs to another trait"));
             }
             requirements.push(wire::CallableRequirementSelectionEntryV1 {
-                requirement: export_callable_requirement_identity(req_id),
+                requirement: export_callable_requirement_identity(req_id, projection.identity_context()),
                 selection: conformance_export.selection(selection, 0)?,
             });
         }
@@ -4401,7 +4479,7 @@ pub fn export_semantic_world_scoped(
             .filter_map(|req| match req {
                 crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
                 | crate::impls::RequirementSelectionTemplate::InherentCallable { callable, .. }
-                | crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => Some(to_stable_callable(callable)),
+                | crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => Some(to_stable_callable_with_context(callable, projection.identity_context())),
                 _ => None,
             })
             .collect();
@@ -4426,7 +4504,7 @@ pub fn export_semantic_world_scoped(
     }
 
     let mut ordered_derived_rules = snapshot.derived_conformance_rules.iter().filter(|rule| scope.owns_impl(&rule.impl_id)).collect::<Vec<_>>();
-    ordered_derived_rules.sort_unstable_by(|left, right| to_stable_impl(&left.impl_id).cmp(&to_stable_impl(&right.impl_id)));
+    ordered_derived_rules.sort_unstable_by(|left, right| to_stable_impl_with_context(&left.impl_id, projection.identity_context()).cmp(&to_stable_impl_with_context(&right.impl_id, projection.identity_context())));
     let mut derived_conformance_rules = Vec::with_capacity(ordered_derived_rules.len());
     for rule in ordered_derived_rules {
         if rule.associated_type_plan.impl_id != rule.impl_id {
@@ -4519,7 +4597,7 @@ pub fn export_semantic_world_scoped(
     callable_analyses.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
     let mut trait_owners = snapshot.trait_surfaces.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
-    trait_owners.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration(left).cmp(&to_stable_declaration(right)));
+    trait_owners.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration_with_context(left, projection.identity_context()).cmp(&to_stable_declaration_with_context(right, projection.identity_context())));
     let mut portable_explanations = BTreeMap::new();
     for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)) {
         portable_explanations.insert(callable.clone(), assign_local_ordinals(analysis.explanations.iter().map(|(id, _)| *id))?);
@@ -4539,7 +4617,7 @@ pub fn export_semantic_world_scoped(
 
     let mut trait_surfaces = Vec::new();
     for (decl_id, surface) in trait_owners {
-        let declaration = to_stable_declaration(decl_id);
+        let declaration = to_stable_declaration_with_context(decl_id, projection.identity_context());
         let header = snapshot
             .trait_headers
             .get(decl_id)
@@ -4574,14 +4652,18 @@ pub fn export_semantic_world_scoped(
                             crate::identity::DispatchSide::Class => 1,
                         },
                     },
-                    callable: to_stable_callable(&member.callable),
+                    callable: to_stable_callable_with_context(&member.callable, projection.identity_context()),
                     signature: export_callable_signature(snapshot.callable_signatures.get(&member.callable).unwrap_or(&member.signature), types)?,
                     visibility: export_visibility(member.visibility),
-                    source: export_source_span(&member.source)?,
+                    source: export_source_span(&member.source, projection.identity_context())?,
                     source_member_index: u32::try_from(member.source_member_index)
                         .map_err(|_| referential("trait member source ordinal exceeds portable range"))?,
                     default_present: member.default_present,
-                    default_source: member.default_source.as_ref().map(export_source_span).transpose()?,
+                    default_source: member
+                        .default_source
+                        .as_ref()
+                        .map(|source| export_source_span(source, projection.identity_context()))
+                        .transpose()?,
                 })
             })
             .collect::<Result<Vec<_>, ArtifactError>>()?;
@@ -4603,7 +4685,7 @@ pub fn export_semantic_world_scoped(
                     },
                     name: associated.name.clone(),
                     domain,
-                    source: export_source_span(&associated.source)?,
+                    source: export_source_span(&associated.source, projection.identity_context())?,
                 })
             })
             .collect::<Result<Vec<_>, ArtifactError>>()?;
@@ -4615,7 +4697,7 @@ pub fn export_semantic_world_scoped(
         trait_surfaces.push(TraitSurfaceRecordV1 {
             declaration,
             generic_signature,
-            header_source: export_source_span(&header.source)?,
+            header_source: export_source_span(&header.source, projection.identity_context())?,
             members,
             associated_types,
             diagnostics,
@@ -4625,7 +4707,7 @@ pub fn export_semantic_world_scoped(
 
     let mut dispatch_surfaces = Vec::new();
     for (decl_id, surface) in snapshot.surfaces.iter().filter(|(id, _)| scope.owns_declaration(id)) {
-        let declaration = to_stable_declaration(decl_id);
+        let declaration = to_stable_declaration_with_context(decl_id, projection.identity_context());
         let dispatch_callables =
             |side: crate::identity::DispatchSide, member_surface: &crate::surface::MemberSurface| -> Result<Vec<wire::DispatchCallableFactV1>, ArtifactError> {
                 let mut callables = Vec::with_capacity(member_surface.callables.len());
@@ -4667,7 +4749,7 @@ pub fn export_semantic_world_scoped(
                         .copied()
                         .ok_or_else(|| referential("declaration dispatch callable has no retained visibility"))?;
                     callables.push(wire::DispatchCallableFactV1 {
-                        callable: to_stable_callable(callable),
+                        callable: to_stable_callable_with_context(callable, projection.identity_context()),
                         knowledge: export_type_knowledge(knowledge, types)?,
                         visibility: export_visibility(visibility),
                     });
@@ -4725,7 +4807,7 @@ pub fn export_semantic_world_scoped(
                     None => (None, None, None),
                 };
                 fields.push(FieldSignatureV1 {
-                    owner: to_stable_declaration(decl_id),
+                    owner: to_stable_declaration_with_context(decl_id, projection.identity_context()),
                     name: name.clone().into_boxed_str(),
                     declared_type,
                     knowledge: export_type_knowledge(knowledge, types)?,
@@ -4758,10 +4840,10 @@ pub fn export_semantic_world_scoped(
     for (target, set) in snapshot.dispatch.conditional_members().iter() {
         let portable_target = match target {
             crate::impls::InherentImplTarget::Declaration(declaration) => wire::InherentImplTargetV1::Declaration {
-                declaration: to_stable_declaration(declaration),
+                declaration: to_stable_declaration_with_context(declaration, projection.identity_context()),
             },
             crate::impls::InherentImplTarget::ExactEnumCase(variant) => wire::InherentImplTargetV1::ExactEnumCase {
-                variant: to_stable_variant(variant),
+                variant: to_stable_variant_with_context(variant, projection.identity_context()),
             },
         };
         if set.target.as_ref() != Some(target) {
@@ -4788,7 +4870,7 @@ pub fn export_semantic_world_scoped(
                     return Err(referential("conditional inherent domain identity disagrees with its set"));
                 }
                 Ok(wire::InherentImplDomainV1 {
-                    impl_id: to_stable_impl(&impl_id),
+                    impl_id: to_stable_impl_with_context(&impl_id, projection.identity_context()),
                     target: portable_target.clone(),
                     head_type: types.ty(domain.head_type)?,
                     generic_signature: domain
@@ -4811,10 +4893,10 @@ pub fn export_semantic_world_scoped(
             .map(|(member_order, member)| -> Result<_, ArtifactError> {
                 let member_order = u32::try_from(member_order).map_err(|_| referential("conditional inherent member order exceeds portable range"))?;
                 Ok(wire::ConditionalInherentMemberV1 {
-                    impl_id: to_stable_impl(&member.impl_id),
+                    impl_id: to_stable_impl_with_context(&member.impl_id, projection.identity_context()),
                     member_order,
                     is_conditionally_applicable: member.is_conditionally_applicable,
-                    callable: to_stable_callable(&member.callable),
+                    callable: to_stable_callable_with_context(&member.callable, projection.identity_context()),
                     signature: export_callable_signature(&member.signature_template, types)?,
                     visibility: export_visibility(member.visibility),
                     source_member_index: u32::try_from(member.source_member)
@@ -4838,18 +4920,18 @@ pub fn export_semantic_world_scoped(
 
     let mut conformance_heads = Vec::new();
     for (impl_id, contribution) in snapshot.conformance_index.iter().filter(|(id, _)| scope.owns_impl(id)) {
-        let stable_impl = to_stable_impl(impl_id);
-        let source_module = to_stable_module(&contribution.source_module);
+        let stable_impl = to_stable_impl_with_context(impl_id, projection.identity_context());
+        let source_module = to_stable_module_with_context(&contribution.source_module, projection.identity_context());
         let target = match &contribution.target {
             crate::impls::ConformanceTarget::Declaration(decl) => ConformanceTargetV1::Declaration {
-                declaration: to_stable_declaration(decl),
+                declaration: to_stable_declaration_with_context(decl, projection.identity_context()),
             },
             crate::impls::ConformanceTarget::ExactEnumCase(variant) => ConformanceTargetV1::ExactEnumCase {
-                variant: to_stable_variant(variant),
+                variant: to_stable_variant_with_context(variant, projection.identity_context()),
             },
         };
         let target_type = types.ty(contribution.target_head)?;
-        let trait_decl = to_stable_declaration(&contribution.trait_ref.declaration);
+        let trait_decl = to_stable_declaration_with_context(&contribution.trait_ref.declaration, projection.identity_context());
         let mut args = Vec::with_capacity(contribution.trait_ref.arguments.len());
         for a in &contribution.trait_ref.arguments {
             args.push(types.ty(*a)?);
@@ -4876,8 +4958,8 @@ pub fn export_semantic_world_scoped(
 
     let mut constructor_initializations = Vec::new();
     for (_, product) in snapshot.constructor_initializations.iter().filter(|(_, product)| scope.owns_callable(&product.factory)) {
-        let factory = to_stable_callable(&product.factory);
-        let initializer = to_stable_callable(&product.initializer);
+        let factory = to_stable_callable_with_context(&product.factory, projection.identity_context());
+        let initializer = to_stable_callable_with_context(&product.initializer, projection.identity_context());
         let origin = match product.origin {
             crate::signature::ConstructorOrigin::Source => 0,
             crate::signature::ConstructorOrigin::Construct => 1,
@@ -4944,7 +5026,7 @@ pub fn export_semantic_world_scoped(
             });
         }
         static_case_catalogs.push(wire::StaticDomainCaseCatalogRecordV1 {
-            domain: export_static_case_domain(domain),
+            domain: export_static_case_domain(domain, projection.identity_context()),
             cases,
         });
     }
@@ -4954,7 +5036,7 @@ pub fn export_semantic_world_scoped(
             return Err(referential("static-case signature table key disagrees with its owner"));
         }
         static_case_signatures.push(wire::StaticCaseSignatureRecordV1 {
-            domain: export_static_case_domain(&case_id.domain),
+            domain: export_static_case_domain(&case_id.domain, projection.identity_context()),
             selector: export_exact_selector(&case_id.selector),
             parameter_kinds: signature.parameter_kinds.iter().map(|&kind| types.kind(kind)).collect::<Result<Vec<_>, _>>()?,
             source: export_source_range(signature.source_range)?,
@@ -4996,7 +5078,7 @@ pub fn export_semantic_world_scoped(
 /// from their native owners. It never fills new wire fields with defaults.
 pub fn export_semantic_world_v4(
     snapshot: &SemanticSnapshot,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     statics: &StaticExportContext,
     module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     limits: &ValidationLimits,
@@ -5020,7 +5102,7 @@ pub fn export_semantic_world_v4(
 /// validation on the same authority as source compilation.
 pub fn export_semantic_world_v4_with_runtime_requirements(
     snapshot: &SemanticSnapshot,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     statics: &StaticExportContext,
     module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
@@ -5028,7 +5110,7 @@ pub fn export_semantic_world_v4_with_runtime_requirements(
 ) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
     let scope = super::projection::ArtifactProjectionScope::whole_image();
     export_semantic_world_v4_scoped(
-        super::projection::ArtifactSemanticProjection::new(snapshot, &scope),
+        super::projection::ArtifactSemanticProjection::new(snapshot, &scope, *types.identity_context()),
         types,
         statics,
         module_world,
@@ -5043,7 +5125,7 @@ pub fn export_semantic_world_v4_with_runtime_requirements(
 /// `types`/`statics` must have been rooted through the same scope.
 pub fn export_semantic_world_v4_scoped(
     projection: super::projection::ArtifactSemanticProjection<'_>,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     statics: &StaticExportContext,
     module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
@@ -5055,11 +5137,11 @@ pub fn export_semantic_world_v4_scoped(
     let scope = projection.scope();
     let base = export_semantic_world_scoped(projection, types, statics, limits)?;
     let structural_contracts = export_structural_primary_contracts_v2(snapshot, scope, types, base.structural_contracts, limits)?;
-    let module_execution_authority = export_module_execution_authority(snapshot, scope, module_world, runtime_requirements)?;
+    let module_execution_authority = export_module_execution_authority(snapshot, scope, module_world, runtime_requirements, projection.identity_context())?;
 
     let mut native_analyses = BTreeMap::new();
     for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)) {
-        let stable = to_stable_callable(callable);
+        let stable = to_stable_callable_with_context(callable, projection.identity_context());
         if native_analyses.insert(stable, (callable, analysis)).is_some() {
             return Err(referential("callable analyses have duplicate stable owners"));
         }
@@ -5084,7 +5166,7 @@ pub fn export_semantic_world_v4_scoped(
             return Err(referential("callable phase evidence has no native analysis owner"));
         };
         let mut observed_import_phases = Vec::with_capacity(analysis.observed_import_phases.len());
-        let stable_module = to_stable_module(callable.module());
+        let stable_module = to_stable_module_with_context(callable.module(), projection.identity_context());
         for (binding, phase) in analysis.observed_import_phases.iter() {
             if &binding.site.importer != callable.module() {
                 return Err(referential("callable observed import phase belongs to a different module"));
@@ -5147,7 +5229,7 @@ pub fn export_semantic_world_v4_scoped(
 fn export_structural_primary_contracts_v2(
     snapshot: &SemanticSnapshot,
     scope: &super::projection::ArtifactProjectionScope,
-    types: &TypeExportContext,
+    types: &TypeExportContext<'_>,
     base: phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV2, ArtifactError> {
@@ -5158,7 +5240,7 @@ fn export_structural_primary_contracts_v2(
         let declaration = snapshot
             .declarations
             .iter()
-            .find_map(|(id, info)| (to_stable_declaration(id) == shell.declaration).then_some((id, info)))
+            .find_map(|(id, info)| (to_stable_declaration_with_context(id, types.identity_context()) == shell.declaration).then_some((id, info)))
             .ok_or_else(|| referential("declaration shell has no native declaration authority"))?;
         let (id, info) = declaration;
         let generic_signature = info
@@ -5174,7 +5256,7 @@ fn export_structural_primary_contracts_v2(
                     return Err(referential("generic supertype template owner disagrees with declaration"));
                 }
                 Ok(wire::GenericSupertypeTemplateV1 {
-                    declaration: to_stable_declaration(&template.declaration),
+                    declaration: to_stable_declaration_with_context(&template.declaration, types.identity_context()),
                     supertype: types.ty(template.supertype)?,
                     structural_form: template.structural_form.clone(),
                 })
@@ -5214,7 +5296,7 @@ fn export_structural_primary_contracts_v2(
             .declarations
             .intrinsic_static_domain_kind(declaration)
             .ok_or_else(|| referential("intrinsic static-domain iterator has no registered kind"))?;
-        let owner = to_stable_declaration(declaration);
+        let owner = to_stable_declaration_with_context(declaration, types.identity_context());
         let kind = types.kind(kind)?;
         if intrinsic_static_domains_by_owner.insert(owner, kind).is_some_and(|previous| previous != kind) {
             return Err(referential("intrinsic static-domain owner has conflicting kinds"));
@@ -5231,7 +5313,7 @@ fn export_structural_primary_contracts_v2(
             .declarations
             .intrinsic_type_owner(declaration)
             .ok_or_else(|| referential("intrinsic type-owner iterator has no registered owner"))?;
-        let declaration = to_stable_declaration(declaration);
+        let declaration = to_stable_declaration_with_context(declaration, types.identity_context());
         let owner = export_intrinsic_type_owner(owner);
         if let Some(previous) = intrinsic_type_owners_by_owner.get(&declaration) {
             if previous != &owner {
@@ -5265,15 +5347,15 @@ fn export_structural_primary_contracts_v2(
                     return Err(referential("hierarchy template owner disagrees with declaration"));
                 }
                 Ok(wire::GenericSupertypeTemplateV1 {
-                    declaration: to_stable_declaration(&template.declaration),
+                    declaration: to_stable_declaration_with_context(&template.declaration, types.identity_context()),
                     supertype: types.ty(template.supertype)?,
                     structural_form: template.structural_form.clone(),
                 })
             })
             .transpose()?;
         hierarchy_edges.push(wire::HierarchyEdgeRecordV1 {
-            declaration: to_stable_declaration(&declaration),
-            superclass: superclass.as_ref().map(to_stable_declaration),
+            declaration: to_stable_declaration_with_context(&declaration, types.identity_context()),
+            superclass: superclass.as_ref().map(|value| to_stable_declaration_with_context(value, types.identity_context())),
             supertype_template,
         });
     }
@@ -5284,7 +5366,7 @@ fn export_structural_primary_contracts_v2(
             return Err(referential("type alias identity or logical source owner disagrees with its declaration"));
         }
         type_aliases.push(wire::TypeAliasRecordV1 {
-            declaration: to_stable_declaration(declaration),
+            declaration: to_stable_declaration_with_context(declaration, types.identity_context()),
             kind: types.kind(alias.kind)?,
             kind_shape: alias.kind_shape.clone(),
             generic_signature: alias
@@ -5294,7 +5376,7 @@ fn export_structural_primary_contracts_v2(
                 .transpose()?,
             form: types.ty(alias.form)?,
             structural_form: alias.structural_form.clone(),
-            dependencies: alias.dependencies.iter().map(to_stable_declaration).collect(),
+            dependencies: alias.dependencies.iter().map(|value| to_stable_declaration_with_context(value, types.identity_context())).collect(),
             source_span: export_source_range(alias.source.range)?,
         });
     }
@@ -5356,6 +5438,7 @@ fn module_phase_covers_callable_observation(
 
 pub(crate) fn export_runtime_dependency_requirements(
     requirements: &[phalcom_modules::linker::RuntimeDependencyRequirement],
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> Result<Vec<phalcom_compiler_artifact::semantic::world::RuntimeDependencyRequirementV1>, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
     use phalcom_modules::graph::{
@@ -5369,27 +5452,27 @@ pub(crate) fn export_runtime_dependency_requirements(
         }
         let read_target = requirement.read_target.as_ref().map(|target| match target {
             phalcom_modules::linker::LinkedReadSpec::Module(module) => wire::LinkedReadSpecV1::Module {
-                module: to_stable_module(module),
+                module: to_stable_module_with_context(module, identity),
             },
             phalcom_modules::linker::LinkedReadSpec::Binding(symbol) => wire::LinkedReadSpecV1::Binding {
                 symbol: phalcom_type_meta::identity::StableDeclarationRef {
-                    module: to_stable_module(&symbol.module),
+                    module: to_stable_module_with_context(&symbol.module, identity),
                     path: Box::new([symbol.name.clone()]),
                 },
             },
         });
         let target = match &requirement.provenance.target {
             RuntimeRequirementTarget::Module(module) => wire::RuntimeRequirementTargetV1::Module {
-                module: to_stable_module(module),
+            module: to_stable_module_with_context(module, identity),
             },
             RuntimeRequirementTarget::Binding { module, name } => wire::RuntimeRequirementTargetV1::Binding {
-                module: to_stable_module(module),
+            module: to_stable_module_with_context(module, identity),
                 name: name.clone(),
             },
         };
         runtime_requirements.push(wire::RuntimeDependencyRequirementV1 {
-            importer: to_stable_module(&requirement.importer),
-            dependency: to_stable_module(&requirement.dependency),
+            importer: to_stable_module_with_context(&requirement.importer, identity),
+            dependency: to_stable_module_with_context(&requirement.dependency, identity),
             range: export_source_range(requirement.range)?,
             reason: match requirement.reason {
                 RuntimeDependencyReason::WholeModuleImport => wire::RuntimeDependencyReasonV1::WholeModuleImport,
@@ -5399,7 +5482,7 @@ pub(crate) fn export_runtime_dependency_requirements(
             },
             read_target,
             provenance: wire::RuntimeRequirementProvenanceV1 {
-                consumer: to_stable_module(&requirement.provenance.consumer),
+                consumer: to_stable_module_with_context(&requirement.provenance.consumer, identity),
                 producer: match requirement.provenance.producer {
                     RuntimeRequirementProducer::DeclarationRead => wire::RuntimeRequirementProducerV1::DeclarationRead,
                     RuntimeRequirementProducer::ImportRead => wire::RuntimeRequirementProducerV1::ImportRead,
@@ -5435,6 +5518,7 @@ fn export_module_execution_authority(
     scope: &super::projection::ArtifactProjectionScope,
     module_world: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> Result<phalcom_compiler_artifact::semantic::world::ModuleExecutionAuthorityV1, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
 
@@ -5444,7 +5528,7 @@ fn export_module_execution_authority(
             .import_phase_products
             .iter()
             .filter(|(module, _)| scope.owns_module(module))
-            .find(|(module, _)| to_stable_module(module) == module_row.identity)
+            .find(|(module, _)| to_stable_module_with_context(module, identity) == module_row.identity)
         else {
             return Err(referential("module world module has no current import phase product"));
         };
@@ -5488,7 +5572,7 @@ fn export_module_execution_authority(
         return Err(referential("import phase products contain modules outside the serialized module world"));
     }
 
-    let runtime_requirements = export_runtime_dependency_requirements(runtime_requirements)?;
+    let runtime_requirements = export_runtime_dependency_requirements(runtime_requirements, identity)?;
 
     Ok(wire::ModuleExecutionAuthorityV1 {
         import_phase_products,
@@ -5499,10 +5583,14 @@ fn export_module_execution_authority(
 /// Stops the writer before it emits an image whose importer would have to
 /// fabricate or discard required compiler authority. As each omitted family
 /// gains an owner-controlled wire adapter, remove its corresponding blocker.
-fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot, scope: &super::projection::ArtifactProjectionScope) -> Result<(), ArtifactError> {
+fn validate_semantic_world_export_coverage(
+    snapshot: &SemanticSnapshot,
+    scope: &super::projection::ArtifactProjectionScope,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> Result<(), ArtifactError> {
     for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)) {
-        let local_ids = CallableAnalysisOrdinalMap::new(callable, analysis)?;
-        if local_ids.owner != to_stable_callable(callable) {
+        let local_ids = CallableAnalysisOrdinalMap::new(callable, analysis, identity)?;
+        if local_ids.owner != to_stable_callable_with_context(callable, identity) {
             return Err(referential("callable analysis ordinal owner is not canonical"));
         }
         let _local_counts = local_ids.local_counts();
@@ -5521,6 +5609,7 @@ fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot, scope: &
 pub fn export_query_image(
     queries: &CanonicalSemanticQueryImage,
     dependency_fingerprints: &CanonicalDependencyFingerprints,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
     limits: &ValidationLimits,
 ) -> Result<QueryImageV2, ArtifactError> {
     let mut candidate_roots = Vec::new();
@@ -5535,7 +5624,7 @@ pub fn export_query_image(
         if !crate::artifact::query_policy::query_root_is_reusable(crate::artifact::query_policy::query_kind_from_portable(kind)) {
             continue;
         }
-        let stable_owner_key = portable_query_owner_key(key)?;
+        let stable_owner_key = portable_query_owner_key(key, identity)?;
         let portable_key = LegacyPortableQueryKeyV1 { kind, stable_owner_key };
         candidate_roots.push((key.clone(), portable_key, entry));
     }
@@ -5605,7 +5694,7 @@ pub fn export_query_image(
         let Some(kind) = portable_query_kind(key) else {
             continue;
         };
-        let stable_owner_key = portable_query_owner_key(key)?;
+        let stable_owner_key = portable_query_owner_key(key, identity)?;
         let stable_aggregate_owner = stable_owner_key.clone();
         dependency_evidence.push(DependencyEvidenceEntryV2 {
             key: LegacyPortableQueryKeyV1 { kind, stable_owner_key },
@@ -5628,6 +5717,7 @@ pub fn export_query_image(
 fn query_root_dependency_closure_failure(
     dependencies: &[crate::db::DependencyEdge],
     mut current_fingerprint: impl FnMut(&crate::db::QueryKey) -> Option<crate::db::ProductFingerprint>,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> Option<String> {
     use crate::artifact::query_policy::query_root_is_reusable;
 
@@ -5642,7 +5732,7 @@ fn query_root_dependency_closure_failure(
                 edge.observed_fingerprint, current_fingerprint
             ));
         }
-        if portable_query_owner_v4(dependency).is_err() {
+        if portable_query_owner_v4(dependency, identity).is_err() {
             return Some(format!("dependency {dependency:?} has no representable portable owner"));
         }
         if !query_root_is_reusable(dependency.kind()) && dependency.kind() != crate::db::QueryKind::HierarchyEdge {
@@ -5674,6 +5764,8 @@ mod query_export_required_root_tests {
     #[test]
     fn required_root_dependency_closure_rejects_missing_and_stale_live_evidence() {
         let module = ModuleId::universe_root();
+        let projects = phalcom_modules::ProjectUniverse::new();
+        let identity = crate::metadata::stable_identity::StableIdentityContext::new(&projects);
         let dependent = QueryKey::UnlinkedInterface(module.clone());
         let dependency = QueryKey::ModuleStaticBindings(module);
         let observed = ProductFingerprint::new(0x51);
@@ -5685,21 +5777,21 @@ mod query_export_required_root_tests {
 
         let missing = CanonicalDependencyFingerprints::Source(BTreeMap::new());
         assert!(
-            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| missing.get(key).copied())
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| missing.get(key).copied(), &identity)
                 .expect("missing dependency evidence must fail")
                 .contains("no current live fingerprint")
         );
 
         let stale = CanonicalDependencyFingerprints::Source(BTreeMap::from([(dependency.clone(), ProductFingerprint::new(0x52))]));
         assert!(
-            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| stale.get(key).copied())
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| stale.get(key).copied(), &identity)
                 .expect("stale dependency evidence must fail")
                 .contains("does not match current live fingerprint")
         );
 
         let current = CanonicalDependencyFingerprints::Source(BTreeMap::from([(dependency, observed)]));
         assert_eq!(
-            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| current.get(key).copied()),
+            query_root_dependency_closure_failure(std::slice::from_ref(&edge), |key| current.get(key).copied(), &identity),
             None
         );
     }
@@ -5712,6 +5804,7 @@ pub fn export_query_image_v4(
     dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
     modules: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
     export_query_image_v4_scoped(
@@ -5720,6 +5813,7 @@ pub fn export_query_image_v4(
         dependency_fingerprints,
         modules,
         world,
+        identity,
         limits,
     )
 }
@@ -5737,6 +5831,7 @@ pub fn export_query_image_v4_scoped(
     dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
     modules: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
     use crate::artifact::query_policy::{
@@ -5744,6 +5839,8 @@ pub fn export_query_image_v4_scoped(
     };
     use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV4, PortableQueryKeyV1, QueryImageV4, QueryRootEntryV4};
     use std::collections::{BTreeMap, BTreeSet};
+
+    let query_identity = identity.for_query_fingerprints();
 
     let required_source_root_count = queries
         .entries()
@@ -5763,7 +5860,7 @@ pub fn export_query_image_v4_scoped(
                 key.kind()
             )));
         }
-        let owner = match portable_query_owner_v4(key) {
+        let owner = match portable_query_owner_v4(key, &query_identity) {
             Ok(owner) => owner,
             Err(_) if requirement == CanonicalQueryRootRequirement::Optional => continue,
             Err(error) => return Err(error),
@@ -5772,7 +5869,7 @@ pub fn export_query_image_v4_scoped(
             kind: portable_query_kind(key.kind()),
             owner,
         };
-        let product = match portable_query_product_ref(&portable_key, entry.product.as_ref(), modules, world) {
+        let product = match portable_query_product_ref(&portable_key, entry.product.as_ref(), modules, world, &query_identity) {
             Ok(product) => product,
             Err(_) if requirement == CanonicalQueryRootRequirement::Optional => continue,
             Err(error) => return Err(error),
@@ -5790,9 +5887,11 @@ pub fn export_query_image_v4_scoped(
             let Some((_, _, _, entry, requirement)) = candidates.iter().find(|(candidate, ..)| candidate == key) else {
                 return Err(referential("retained canonical query root was lost from the export candidate set"));
             };
-            if let Some(reason) = query_root_dependency_closure_failure(&entry.dependencies, |dependency| {
-                export_dependency_fingerprint(queries, dependency_fingerprints, dependency)
-            }) {
+            if let Some(reason) = query_root_dependency_closure_failure(
+                &entry.dependencies,
+                |dependency| export_dependency_fingerprint(queries, dependency_fingerprints, dependency),
+                &query_identity,
+            ) {
                 match requirement {
                     CanonicalQueryRootRequirement::Required => {
                         return Err(referential(format!("required canonical query root {key:?} is not export-closed: {reason}")));
@@ -5822,7 +5921,7 @@ pub fn export_query_image_v4_scoped(
             };
             let portable = PortableQueryKeyV1 {
                 kind: portable_query_kind(dependency.kind()),
-                owner: portable_query_owner_v4(dependency)?,
+                owner: portable_query_owner_v4(dependency, &query_identity)?,
             };
             let evidence = DependencyEvidenceEntryV4 {
                 key: portable.clone(),
@@ -5858,7 +5957,7 @@ pub fn export_query_image_v4_scoped(
         for edge in entry.dependencies.iter() {
             let portable_dependency = PortableQueryKeyV1 {
                 kind: portable_query_kind(edge.dependency.kind()),
-                owner: portable_query_owner_v4(&edge.dependency)?,
+                owner: portable_query_owner_v4(&edge.dependency, &query_identity)?,
             };
             dependency_indices.push(
                 *evidence_indices
@@ -5899,7 +5998,10 @@ pub fn export_query_image_v4_scoped(
     Ok(image)
 }
 
-fn portable_query_owner_v4(key: &crate::db::QueryKey) -> Result<phalcom_compiler_artifact::query::PortableQueryOwnerKeyV1, ArtifactError> {
+fn portable_query_owner_v4(
+    key: &crate::db::QueryKey,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> Result<phalcom_compiler_artifact::query::PortableQueryOwnerKeyV1, ArtifactError> {
     use crate::db::QueryKey as Q;
     use phalcom_compiler_artifact::query::PortableQueryOwnerKeyV1 as Owner;
 
@@ -5914,7 +6016,7 @@ fn portable_query_owner_v4(key: &crate::db::QueryKey) -> Result<phalcom_compiler
         | Q::ModuleDiagnostics(module)
         | Q::ModuleMetadata(module)
         | Q::ModuleStaticBindingCatalog(module)
-        | Q::ModuleStaticBindings(module) => Owner::Module(to_stable_module(module)),
+        | Q::ModuleStaticBindings(module) => Owner::Module(to_stable_module_with_context(module, identity)),
         Q::DeclarationShell(declaration)
         | Q::HierarchyEdge(declaration)
         | Q::DeclarationSurface(declaration)
@@ -5925,7 +6027,7 @@ fn portable_query_owner_v4(key: &crate::db::QueryKey) -> Result<phalcom_compiler
         | Q::EnumDeclaration(declaration)
         | Q::EnumRequirements(declaration)
         | Q::AssociatedSurface(declaration)
-        | Q::StaticDefinition(declaration) => Owner::Declaration(to_stable_declaration(declaration)),
+        | Q::StaticDefinition(declaration) => Owner::Declaration(to_stable_declaration_with_context(declaration, identity)),
         Q::CallableDefinition(callable)
         | Q::CallableSignature(callable)
         | Q::CallableBody(callable)
@@ -5935,16 +6037,16 @@ fn portable_query_owner_v4(key: &crate::db::QueryKey) -> Result<phalcom_compiler
         | Q::CallableContracts(callable)
         | Q::VerificationConditions(callable)
         | Q::SourceFormalAttachment(callable)
-        | Q::AdvisoryCallable(callable) => Owner::Callable(to_stable_callable(callable)),
-        Q::FieldSignature(field) => Owner::Field(to_stable_field(field)),
+        | Q::AdvisoryCallable(callable) => Owner::Callable(to_stable_callable_with_context(callable, identity)),
+        Q::FieldSignature(field) => Owner::Field(to_stable_field_with_context(field, identity)),
         Q::TypeMemberDeclaration(member) => Owner::TypeMember(phalcom_type_meta::identity::StableTypeMemberRef {
-            owner: to_stable_declaration(&member.owner),
+            owner: to_stable_declaration_with_context(&member.owner, identity),
             selector: match &member.selector {
                 crate::types::type_member::TypeMemberSelector::Named(name) => name.clone(),
                 crate::types::type_member::TypeMemberSelector::Subscript => "[]".into(),
             },
         }),
-        Q::ConformanceDispatch(implementation) => Owner::Impl(to_stable_impl(implementation)),
+        Q::ConformanceDispatch(implementation) => Owner::Impl(to_stable_impl_with_context(implementation, identity)),
         _ => return Err(referential("query kind has no project-qualified portable owner")),
     })
 }
@@ -5954,6 +6056,7 @@ fn portable_query_product_ref(
     native_product: &crate::db::SemanticProduct,
     modules: &phalcom_compiler_artifact::module_world_v5::ModuleWorldV5,
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
 ) -> Result<phalcom_compiler_artifact::query::QueryProductRefV3, ArtifactError> {
     use phalcom_compiler_artifact::query::{
         PortableQueryKindV1 as K, PortableQueryOwnerKeyV1 as O, PortableQueryProductFamilyV1 as F, QueryProductRefV3, product_family_is_valid_for_query_kind,
@@ -5982,7 +6085,7 @@ fn portable_query_product_ref(
                 .as_declaration_shell()
                 .ok_or_else(|| referential("DeclarationShell query does not carry a native declaration-shell product"))?;
             let shell = shell.as_ref();
-            if to_stable_declaration(shell.declaration()) != *owner {
+            if to_stable_declaration_with_context(shell.declaration(), identity) != *owner {
                 return Err(referential("native declaration-shell product owner differs from query owner"));
             }
             match shell {
@@ -6300,10 +6403,12 @@ mod callable_analysis_status_tests {
             bindings: Box::new([(parameter, crate::types::store::StaticArgument::DynamicType)]),
             conformances: Box::default(),
         });
-        let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
+        let artifact_identity_projects_2 = phalcom_modules::ProjectUniverse::new();
+        let mut types = crate::types::store::artifact::TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_2));
         super::super::roots::register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
-        let mut parameter_only = crate::types::store::artifact::TypeExportContext::new(&store);
+        let artifact_identity_projects_3 = phalcom_modules::ProjectUniverse::new();
+        let mut parameter_only = crate::types::store::artifact::TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_3));
         let parameter_only_lineage = parameter_only.expected_lineage();
         for (product_subkey, ty) in [(100, blocked_subject), (101, blocked_argument)] {
             parameter_only
@@ -6311,7 +6416,7 @@ mod callable_analysis_status_tests {
                     parameter_only_lineage,
                     phalcom_compiler_artifact::semantic::type_store::CanonicalTypeRootKey {
                         family_tag: phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::CallableAnalysis,
-                        owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(to_stable_callable(&callable)),
+                        owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(to_stable_callable_with_context(&callable, parameter_only.identity_context())),
                         product_subkey,
                     },
                     ty,
@@ -6323,7 +6428,7 @@ mod callable_analysis_status_tests {
                 parameter_only_lineage,
                 phalcom_compiler_artifact::semantic::type_store::CanonicalTypeRootKey {
                     family_tag: phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::CallableAnalysis,
-                    owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(to_stable_callable(&callable)),
+                    owner: phalcom_compiler_artifact::semantic::type_store::StableOwnerRef::Callable(to_stable_callable_with_context(&callable, parameter_only.identity_context())),
                     product_subkey: 102,
                 },
                 parameter,
@@ -6336,8 +6441,10 @@ mod callable_analysis_status_tests {
             "the blocked query owner roots its types, while Dynamic adds no further proper-type root"
         );
 
-        let ordinals = CallableAnalysisOrdinalMap::new(&callable, &analysis).expect("well-formed body owner map");
-        assert_eq!(ordinals.owner, to_stable_callable(&callable));
+        let ordinal_projects = phalcom_modules::ProjectUniverse::new();
+        let ordinal_identity = crate::metadata::stable_identity::StableIdentityContext::new(&ordinal_projects);
+        let ordinals = CallableAnalysisOrdinalMap::new(&callable, &analysis, &ordinal_identity).expect("well-formed body owner map");
+        assert_eq!(ordinals.owner, to_stable_callable_with_context(&callable, &ordinal_identity));
         assert_eq!(ordinals.expressions.get(&expression_b), Some(&0));
         assert_eq!(ordinals.expressions.get(&expression_a), Some(&1));
         assert_eq!(ordinals.bindings.get(&binding), Some(&0));
@@ -6354,7 +6461,7 @@ mod callable_analysis_status_tests {
                 .map(|(key, resolution)| (*key, resolution.clone()))
                 .collect(),
         );
-        let permuted_ordinals = CallableAnalysisOrdinalMap::new(&callable, &allocation_history_permuted)
+        let permuted_ordinals = CallableAnalysisOrdinalMap::new(&callable, &allocation_history_permuted, &ordinal_identity)
             .expect("reordered insertion history keeps the same callable-local coordinate map");
         assert_eq!(permuted_ordinals.expressions, ordinals.expressions);
         assert_eq!(permuted_ordinals.bindings, ordinals.bindings);
@@ -6366,18 +6473,19 @@ mod callable_analysis_status_tests {
 
         let other_callable = CallableId::method(owner.clone(), Selector::getter("other").unwrap(), DispatchSide::Class);
         assert!(
-            CallableAnalysisOrdinalMap::new(&other_callable, &analysis).is_err(),
+            CallableAnalysisOrdinalMap::new(&other_callable, &analysis, &ordinal_identity).is_err(),
             "an owner cannot reuse another callable's ordinal context"
         );
         let mut other_analysis = analysis.clone();
         other_analysis.callable = other_callable.clone();
-        let other_ordinals = CallableAnalysisOrdinalMap::new(&other_callable, &other_analysis).expect("other callable has its own local coordinate space");
+        let other_ordinals = CallableAnalysisOrdinalMap::new(&other_callable, &other_analysis, &ordinal_identity)
+            .expect("other callable has its own local coordinate space");
         assert_eq!(other_ordinals.expressions.get(&expression_b), Some(&0));
         assert_ne!(ordinals.owner, other_ordinals.owner);
 
         let mut unowned_call = analysis.clone();
         unowned_call.expressions.get_source_mut(&expression_a).unwrap().unwrap().call = Some(crate::identity::CallResolutionId(4));
-        assert!(CallableAnalysisOrdinalMap::new(&callable, &unowned_call).is_err());
+        assert!(CallableAnalysisOrdinalMap::new(&callable, &unowned_call, &ordinal_identity).is_err());
 
         let mut unowned_predicate = analysis.clone();
         let mut flow = crate::checker::flow::graph::FlowGraph::new();
@@ -6393,7 +6501,7 @@ mod callable_analysis_status_tests {
         )
         .unwrap();
         unowned_predicate.flow_graph = std::sync::Arc::new(flow);
-        assert!(CallableAnalysisOrdinalMap::new(&callable, &unowned_predicate).is_err());
+        assert!(CallableAnalysisOrdinalMap::new(&callable, &unowned_predicate, &ordinal_identity).is_err());
 
         let binding_source_authorities = std::collections::BTreeMap::from([(
             binding,
@@ -6450,22 +6558,24 @@ mod callable_analysis_status_tests {
             },
         ]
         .into_boxed_slice();
-        let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
+        let artifact_identity_projects_4 = phalcom_modules::ProjectUniverse::new();
+        let mut types = crate::types::store::artifact::TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_4));
         super::super::roots::register_callable_analysis_roots(&mut types, &analysis, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
+        let identity = types.identity_context();
         let record = export_callable_analysis_record(&callable, &analysis, &binding_source_authorities, &types, &ValidationLimits::default()).unwrap();
         assert_eq!(record.status, PortableStatus::Blocked);
         assert_eq!(
             &record.body_source_owner,
             &Some(CallableAnalysisSourceOwnerV1::Module {
-                module: to_stable_module(callable.module()),
+                module: to_stable_module_with_context(callable.module(), identity),
             })
         );
         assert!(record.exits_unreachable);
         let constructor_call = record.constructor_super_initializer.unwrap();
         assert_eq!(constructor_call.call_range.start, 7);
         assert_eq!(constructor_call.call_range.end, 9);
-        assert_eq!(constructor_call.initializer, to_stable_callable(&initializer));
+        assert_eq!(constructor_call.initializer, to_stable_callable_with_context(&initializer, identity));
         let binding_row = record.bindings.first().expect("portable binding row");
         assert_eq!(binding_row.name, "local");
         assert_eq!(binding_row.range.start, 30);
@@ -6476,7 +6586,7 @@ mod callable_analysis_status_tests {
                 site_owner: CallableAnalysisSourceOwnerV1::Module { module },
                 site_local: 3,
                 declaration_range: phalcom_compiler_artifact::module_world::SpanV1 { start: 30, end: 35 },
-            } if module == &to_stable_module(callable.module())
+            } if module == &to_stable_module_with_context(callable.module(), identity)
         ));
         assert_eq!(record.expressions.len(), 2);
         let expression_row = &record.expressions[ordinals.expressions[&expression_a] as usize];
@@ -6488,13 +6598,13 @@ mod callable_analysis_status_tests {
                 reason: phalcom_compiler_artifact::semantic::aggregates::DynamicReasonV1::ExplicitEscape,
             }
         ));
-        assert_eq!(expression_row.callable, Some(to_stable_callable(&callable)));
+        assert_eq!(expression_row.callable, Some(to_stable_callable_with_context(&callable, identity)));
         assert_eq!(
             expression_row.conditional_dispatch,
             Some(phalcom_compiler_artifact::semantic::world::ConditionalDispatchSelectionV1 {
-                impl_id: to_stable_impl(&conditional_impl),
-                callable: to_stable_callable(&callable),
-                declaring_owner: to_stable_declaration(&owner),
+                impl_id: to_stable_impl_with_context(&conditional_impl, identity),
+                callable: to_stable_callable_with_context(&callable, identity),
+                declaring_owner: to_stable_declaration_with_context(&owner, identity),
                 side: 1,
             })
         );
@@ -6652,7 +6762,8 @@ mod callable_analysis_status_tests {
         )
         .with_root_cause(cause)
         .with_explanation(ExplanationRef::new(callable.clone(), first))]);
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_5 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_5));
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
         types.close_graph(&store, &limits).unwrap();
         let portable_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &limits).unwrap();
@@ -6685,7 +6796,8 @@ mod callable_analysis_status_tests {
             imported.dependency_fingerprint,
             crate::db::fingerprint::callable_body_product_fingerprint(imported)
         );
-        let mut imported_types = TypeExportContext::new(&imported_store);
+        let artifact_identity_projects_6 = phalcom_modules::ProjectUniverse::new();
+        let mut imported_types = TypeExportContext::new(&imported_store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_6));
         crate::artifact::roots::register_callable_analysis_roots(&mut imported_types, imported, &imported_store).unwrap();
         imported_types.close_graph(&imported_store, &limits).unwrap();
         let reexported = export_callable_analysis_record(&callable, imported, &BTreeMap::new(), &imported_types, &limits).unwrap();
@@ -6727,7 +6839,8 @@ mod callable_analysis_status_tests {
         let denotation_type = store.nominal_type(denotation_owner);
         denoted.expressions.get_source_mut(&expression_id).unwrap().unwrap().denotation = Some(SemanticDenotation::TypeForm(denotation_type));
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_7 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_7));
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &denoted, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
         let empty_record = export_callable_analysis_record(&callable, &source, &BTreeMap::new(), &types, &ValidationLimits::default()).unwrap();
@@ -6820,7 +6933,8 @@ mod callable_analysis_status_tests {
                 .unwrap();
         }
         source.family_applications = Arc::new(families);
-        let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
+        let artifact_identity_projects_8 = phalcom_modules::ProjectUniverse::new();
+        let mut types = crate::types::store::artifact::TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_8));
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
         let record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
@@ -6994,7 +7108,8 @@ mod callable_analysis_status_tests {
             )
             .unwrap();
         source.known_invalid_positional_expansions = Arc::new(invalid);
-        let mut types = crate::types::store::artifact::TypeExportContext::new(&store);
+        let artifact_identity_projects_9 = phalcom_modules::ProjectUniverse::new();
+        let mut types = crate::types::store::artifact::TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_9));
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &source, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
         let mut record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
@@ -7171,7 +7286,8 @@ mod callable_analysis_status_tests {
             requirement_targets: Default::default(),
         }));
 
-        let mut types = TypeExportContext::new(&store);
+        let artifact_identity_projects_10 = phalcom_modules::ProjectUniverse::new();
+        let mut types = TypeExportContext::new(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_10));
         crate::artifact::roots::register_callable_analysis_roots(&mut types, &enriched, &store).unwrap();
         types.close_graph(&store, &ValidationLimits::default()).unwrap();
         let source_record = phalcom_compiler_artifact::semantic::world::CallableAnalysisRecordV2::from_v1_with_observed_import_phases(
@@ -7216,7 +7332,130 @@ mod callable_analysis_status_tests {
     }
 }
 
-pub(crate) fn portable_query_owner_key(key: &crate::db::QueryKey) -> Result<String, ArtifactError> {
+#[cfg(test)]
+mod package_owned_identity_tests {
+    use super::*;
+    use crate::artifact::projection::{ArtifactProjectionScope, ArtifactSemanticProjection};
+    use crate::canonical_image::{
+        CanonicalDependencyFingerprints, CanonicalQueryEntries, CanonicalQueryEntry, CanonicalSemanticQueryImage, CanonicalSemanticWorldId,
+    };
+    use crate::db::product::{CallableSignatureProduct, SemanticProduct};
+    use crate::db::{ProductFingerprint, QueryKey};
+    use crate::metadata::stable_identity::StableIdentityContext;
+    use crate::static_value::StaticExportContext;
+    use crate::types::store::artifact::TypeExportContext;
+    use phalcom_compiler_artifact::module_world_v5::ModuleWorldV5;
+    use phalcom_compiler_artifact::module_world::ArtifactModuleId;
+    use phalcom_compiler_artifact::ValidationLimits;
+    use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, ProjectUniverse, ResolvedProjectId};
+    use phalcom_type_meta::allocation::AllocationBudget;
+    use phalcom_type_meta::fingerprint::Fingerprint128;
+    use phalcom_type_meta::identity::StableProjectRef;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    #[test]
+    fn scoped_package_semantic_and_query_exports_use_publishing_identity() {
+        let project = ResolvedProjectId::from_raw(721);
+        let module = ModuleId::resolved(
+            project,
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("artifact_probe").unwrap()]),
+        );
+        let source: Arc<str> = Arc::from("class Probe { @class run() { 1 } }\n");
+        let parsed = phalcom_ast::parse_source(&source, 0).unwrap();
+        let snapshot = crate::analyze_single_module(module.clone(), source, Arc::new(parsed)).unwrap().snapshot;
+        let callable = snapshot
+            .callable_signatures
+            .iter()
+            .map(|(callable, _)| callable)
+            .find(|callable| callable.module() == &module)
+            .expect("fixture must publish a package-owned callable signature")
+            .clone();
+        let signature = snapshot.callable_signatures.get(&callable).unwrap().clone();
+
+        let project_universe = ProjectUniverse::new();
+        let package_identity = StableProjectRef::Package {
+            package: "artifact-probe".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([0x71; 16]),
+        };
+        let identity = StableIdentityContext::publishing(&project_universe, project, &package_identity);
+        let scope = ArtifactProjectionScope::new([module]);
+        let projection = ArtifactSemanticProjection::new(&snapshot, &scope, identity);
+        let limits = ValidationLimits::default();
+        let mut types = TypeExportContext::new(&snapshot.store, identity);
+        let mut statics = StaticExportContext::new(&snapshot.static_values);
+        crate::artifact::roots::register_semantic_world_roots_scoped(projection, &mut types, &mut statics).unwrap();
+        types.close_graph(&snapshot.store, &limits).unwrap();
+        statics.close_graph(&snapshot.static_values, &types, &limits).unwrap();
+
+        let module_world = ModuleWorldV5 {
+            entry: ArtifactModuleId(0),
+            initialization_order: Vec::new(),
+            modules: Vec::new(),
+            semantic_rows: Vec::new(),
+            external_projects: Vec::new(),
+            external_modules: Vec::new(),
+            topology_fingerprint: 0,
+            availability_witnesses: Vec::new(),
+            bootstrap_modules: Vec::new(),
+            bootstrap_availability: Vec::new(),
+        };
+        let semantic_world = export_semantic_world_v4_scoped(
+            projection,
+            &types,
+            &statics,
+            &module_world,
+            &[],
+            &limits,
+        )
+        .unwrap();
+
+        let key = QueryKey::CallableSignature(callable);
+        let query_product_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(&signature);
+        let query_entry = CanonicalQueryEntry {
+            input_fingerprint: crate::db::fingerprint::callable_signature_input_fingerprint(&signature),
+            product_fingerprint: query_product_fingerprint,
+            dependencies: Arc::from([]),
+            product: Arc::new(SemanticProduct::CallableSignature(Arc::new(CallableSignatureProduct::new(
+                Arc::new(signature),
+                Arc::from([]),
+            )))),
+        };
+        let mut allocations = AllocationBudget::new(usize::MAX);
+        let entries = CanonicalQueryEntries::from_loaded_entries(vec![(key, query_entry)], &mut allocations).unwrap();
+        let queries = CanonicalSemanticQueryImage::from_loaded_artifact_entries(
+            CanonicalSemanticWorldId::for_source_world(1, Arc::new(BTreeMap::new())),
+            entries,
+            snapshot.store.clone(),
+            snapshot.static_values.clone(),
+            &mut allocations,
+        )
+        .unwrap();
+        let query_image = export_query_image_v4_scoped(
+            &scope,
+            &queries,
+            &CanonicalDependencyFingerprints::Source(BTreeMap::<QueryKey, ProductFingerprint>::new()),
+            &module_world,
+            &semantic_world,
+            &identity,
+            &limits,
+        )
+        .unwrap();
+
+        assert_eq!(semantic_world.callable_signatures.len(), 1);
+        assert_eq!(query_image.supported_roots.len(), 1);
+        let emitted = format!("{semantic_world:?}{query_image:?}");
+        assert!(emitted.contains("Package"), "package-owned rows must use publishing identity");
+        assert!(!emitted.contains("SourceArtifact"), "package exports must not leak source paths or provenance");
+        assert!(!emitted.contains("Session"), "package export must not substitute a session identity");
+    }
+}
+
+pub(crate) fn portable_query_owner_key(
+    key: &crate::db::QueryKey,
+    identity: &crate::metadata::stable_identity::StableIdentityContext<'_>,
+) -> Result<String, ArtifactError> {
     fn typed_json<T: serde::Serialize>(tag: &str, value: &T) -> Result<String, ArtifactError> {
         let encoded = serde_json::to_string(value).map_err(|error| referential(format!("cannot encode stable query owner: {error}")))?;
         Ok(format!("{tag}:{encoded}"))
@@ -7232,7 +7471,7 @@ pub(crate) fn portable_query_owner_key(key: &crate::db::QueryKey) -> Result<Stri
         | crate::db::QueryKey::ModuleDiagnostics(m)
         | crate::db::QueryKey::ModuleMetadata(m)
         | crate::db::QueryKey::ModuleStaticBindingCatalog(m)
-        | crate::db::QueryKey::ModuleStaticBindings(m) => typed_json("module", &to_stable_module(m)),
+        | crate::db::QueryKey::ModuleStaticBindings(m) => typed_json("module", &to_stable_module_with_context(m, identity)),
         crate::db::QueryKey::DeclarationShell(d)
         | crate::db::QueryKey::DeclarationSurface(d)
         | crate::db::QueryKey::TraitHeader(d)
@@ -7243,7 +7482,7 @@ pub(crate) fn portable_query_owner_key(key: &crate::db::QueryKey) -> Result<Stri
         | crate::db::QueryKey::EnumDeclaration(d)
         | crate::db::QueryKey::EnumRequirements(d)
         | crate::db::QueryKey::AssociatedSurface(d)
-        | crate::db::QueryKey::StaticDefinition(d) => typed_json("declaration", &to_stable_declaration(d)),
+        | crate::db::QueryKey::StaticDefinition(d) => typed_json("declaration", &to_stable_declaration_with_context(d, identity)),
         crate::db::QueryKey::CallableDefinition(c)
         | crate::db::QueryKey::CallableSignature(c)
         | crate::db::QueryKey::CallableBody(c)
@@ -7253,16 +7492,16 @@ pub(crate) fn portable_query_owner_key(key: &crate::db::QueryKey) -> Result<Stri
         | crate::db::QueryKey::CallableContracts(c)
         | crate::db::QueryKey::VerificationConditions(c)
         | crate::db::QueryKey::SourceFormalAttachment(c)
-        | crate::db::QueryKey::AdvisoryCallable(c) => typed_json("callable", &to_stable_callable(c)),
-        crate::db::QueryKey::FieldSignature(f) => typed_json("field", &to_stable_field(f)),
+        | crate::db::QueryKey::AdvisoryCallable(c) => typed_json("callable", &to_stable_callable_with_context(c, identity)),
+        crate::db::QueryKey::FieldSignature(f) => typed_json("field", &to_stable_field_with_context(f, identity)),
         crate::db::QueryKey::TypeMemberDeclaration(id) => {
             let selector = match &id.selector {
                 crate::types::type_member::TypeMemberSelector::Named(name) => (0_u8, name.as_ref()),
                 crate::types::type_member::TypeMemberSelector::Subscript => (1_u8, ""),
             };
-            typed_json("type-member", &(to_stable_declaration(&id.owner), selector))
+            typed_json("type-member", &(to_stable_declaration_with_context(&id.owner, identity), selector))
         }
-        crate::db::QueryKey::ConformanceDispatch(impl_id) => typed_json("impl", &to_stable_impl(impl_id)),
+        crate::db::QueryKey::ConformanceDispatch(impl_id) => typed_json("impl", &to_stable_impl_with_context(impl_id, identity)),
         _ => Err(referential("query kind has no portable stable owner-key encoding")),
     }
 }

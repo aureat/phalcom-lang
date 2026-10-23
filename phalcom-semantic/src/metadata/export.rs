@@ -319,6 +319,16 @@ impl<'a> MetadataExporter<'a> {
         self
     }
 
+    /// Supplies the exact stable identity authority used by artifact publication.
+    pub fn with_identity_context(mut self, context: StableIdentityContext<'a>) -> Self {
+        self.identity_context = Some(if self.query_fingerprints {
+            context.for_query_fingerprints()
+        } else {
+            context
+        });
+        self
+    }
+
     /// Supplies revision-independent project coordinates to the in-process
     /// query fingerprint projection. Serialized bundles use `with_project_universe`.
     pub fn with_project_universe_query(mut self, projects: &'a phalcom_modules::ProjectUniverse) -> Self {
@@ -332,7 +342,7 @@ impl<'a> MetadataExporter<'a> {
     pub fn for_query_fingerprints(mut self) -> Self {
         self.query_fingerprints = true;
         if let Some(context) = self.identity_context.as_ref() {
-            self.identity_context = Some(StableIdentityContext::for_query(context.projects));
+            self.identity_context = Some(context.for_query_fingerprints());
         }
         self
     }

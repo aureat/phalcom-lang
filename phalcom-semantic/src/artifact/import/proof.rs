@@ -465,7 +465,8 @@ mod tests {
     fn callable_proof_record_keys_import_with_exact_charged_content_backing() {
         let limits = ValidationLimits::default();
         let store = TypeStore::new();
-        let types = crate::types::store::artifact::TypeExportContext::new_full(&store).unwrap();
+        let artifact_identity_projects_1 = phalcom_modules::ProjectUniverse::new();
+        let types = crate::types::store::artifact::TypeExportContext::new_full(&store, crate::metadata::stable_identity::StableIdentityContext::new(&artifact_identity_projects_1)).unwrap();
         let graph = types.project_graph(&store, &limits).unwrap();
         let (_, relocation) = TypeStore::import_type_graph(&graph, &limits).unwrap();
         let keys = [
