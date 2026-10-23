@@ -21,6 +21,7 @@ pub struct LinkedTypeResolver {
     linked: Option<Arc<LinkedProgram>>,
     semantic_linked: Option<Arc<SemanticLinkedProgram>>,
     canonical_linked: Option<Arc<LinkedProgram>>,
+    external_modules: Option<Arc<dyn phalcom_modules::ExternalModuleAuthority>>,
     known_declarations: HashSet<DeclarationId>,
     prelude_types: Arc<PreludeTypeMap>,
     retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
@@ -50,6 +51,7 @@ impl LinkedTypeResolver {
             linked: Some(linked),
             semantic_linked: None,
             canonical_linked: None,
+            external_modules: None,
             known_declarations,
             prelude_types,
             retained_alias_forms: Arc::new(BTreeMap::new()),
@@ -76,6 +78,7 @@ impl LinkedTypeResolver {
             linked: Some(linked),
             semantic_linked: None,
             canonical_linked: None,
+            external_modules: None,
             known_declarations,
             prelude_types: PreludeTypeMap::shared_canonical_universe(),
             retained_alias_forms,
@@ -105,6 +108,7 @@ impl LinkedTypeResolver {
             linked: None,
             semantic_linked: Some(semantic_linked),
             canonical_linked: None,
+            external_modules: None,
             known_declarations,
             prelude_types,
             retained_alias_forms: Arc::new(BTreeMap::new()),
@@ -127,10 +131,19 @@ impl LinkedTypeResolver {
         self
     }
 
+    /// Adds exact immutable linked-module authority from one or more compiler
+    /// artifacts. Local workspace linking remains first; external authority is
+    /// consulted only when the module is not locally owned.
+    pub fn with_external_modules(mut self, external: Arc<dyn phalcom_modules::ExternalModuleAuthority>) -> Self {
+        self.external_modules = Some(external);
+        self
+    }
+
     fn linked_module(&self, module: &ModuleId) -> Option<&phalcom_modules::linker::LinkedModule> {
         self.linked
             .as_ref()
             .and_then(|linked| linked.modules.get(module))
+            .or_else(|| self.external_modules.as_ref().and_then(|external| external.linked_module(module)))
             .or_else(|| self.canonical_linked.as_ref().and_then(|canonical| canonical.modules.get(module)))
     }
 
