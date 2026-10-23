@@ -14,7 +14,7 @@ use phalcom_compiler_artifact::module_world::ModuleWorldV4;
 use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
-use phalcom_modules::{CanonicalExternalModuleWorld, ExternalModuleAuthoritySet, ModuleId, ProjectUniverse, TrustedPackageResolver};
+use phalcom_modules::{CanonicalExternalModuleWorld, ExternalModuleAuthority, ExternalModuleAuthoritySet, ModuleId, ProjectUniverse, TrustedPackageResolver};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_semantic::artifact::import::{
     validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget,
@@ -247,8 +247,11 @@ impl StagedTeloscCompilerWire {
                     "loaded Universe artifact project authority does not match composition base".into(),
                 )).into());
             }
+            let fingerprints = universe
+                .dependency_fingerprints()
+                .clone_with_allocation_budget(&mut composition_budget)?;
             let fingerprints = composition_budget
-                .arc(universe.dependency_fingerprints().clone())
+                .arc(fingerprints)
                 .map_err(ArtifactError::Allocation)?;
             worlds.push(Arc::clone(universe.modules()));
             generations.push(StagedArtifactSemanticGeneration {
