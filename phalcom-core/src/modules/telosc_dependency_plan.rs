@@ -24,6 +24,19 @@ fn invalid(message: &'static str) -> ArtifactError {
 pub(crate) fn plan_package_dependencies(
     nodes: &[PackageDependencyNode<'_>],
     limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<Vec<usize>, ArtifactError> {
+    // A rejected graph must not spend the caller's cumulative allocation
+    // budget, even if cycle detection fails after staging scratch rows.
+    let mut staged = transaction.child(transaction.remaining());
+    let order = plan_package_dependencies_inner(nodes, limits, &mut staged)?;
+    transaction.commit_child(staged).map_err(ArtifactError::Allocation)?;
+    Ok(order)
+}
+
+fn plan_package_dependencies_inner(
+    nodes: &[PackageDependencyNode<'_>],
+    limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<Vec<usize>, ArtifactError> {
     if nodes.len() > limits.max_modules {
@@ -136,7 +149,9 @@ mod tests {
         let mut budget = AllocationBudget::new(64 * 1024);
         let limits = ValidationLimits::default();
         let missing = [PackageDependencyNode { owner: &a, external_projects: &a_deps }];
+        let before = budget.requested();
         assert!(plan_package_dependencies(&missing, &limits, &mut budget).is_err());
+        assert_eq!(budget.requested(), before, "missing dependency may not spend transaction budget");
         let duplicate = [
             PackageDependencyNode { owner: &a, external_projects: &[] },
             PackageDependencyNode { owner: &a, external_projects: &[] },
@@ -147,6 +162,7 @@ mod tests {
             PackageDependencyNode { owner: &b, external_projects: &b_deps },
         ];
         assert!(plan_package_dependencies(&cycle, &limits, &mut budget).is_err());
+        assert_eq!(budget.requested(), before, "cyclic dependency ordering must rollback charged scratch allocations");
     }
 
     #[test]
