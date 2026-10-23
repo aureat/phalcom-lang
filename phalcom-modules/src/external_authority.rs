@@ -46,6 +46,11 @@ impl<T: ExternalModuleAuthority + ?Sized> ExternalModuleAuthority for Arc<T> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ExternalModuleOrigin(usize);
 
+impl ExternalModuleOrigin {
+    /// Stable index of the owning artifact within the composed authority set.
+    pub fn index(self) -> usize { self.0 }
+}
+
 /// A closed immutable collection of completed native module worlds.
 ///
 /// No products are copied into mutable source maps. Construction checks every
