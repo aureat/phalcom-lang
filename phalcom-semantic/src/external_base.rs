@@ -24,6 +24,7 @@ use crate::type_alias::TypeAliasTable;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_modules::{ExternalModuleAuthority, ExternalModuleAuthoritySet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn incomplete(message: impl Into<String>) -> CanonicalImageError {
@@ -161,6 +162,8 @@ impl ExternalSemanticSessionSeed {
         let mut static_definitions = StaticDefinitionTable::new();
         let mut static_constants = StaticConstantTable::new();
         let mut module_static_bindings = crate::parent_map::ParentMap::default();
+        let mut conditional_dispatch =
+            BTreeMap::<crate::impls::InherentImplTarget, crate::impls::ConditionalInherentMemberSet>::new();
 
         for (generation_index, generation) in queries.generations().iter().enumerate() {
             generation
@@ -253,15 +256,34 @@ impl ExternalSemanticSessionSeed {
                 dispatch.register_surface(owner.clone(), surface.clone());
             }
             for (target, members) in snapshot.dispatch.conditional_members().iter() {
-                let module = &target.declaration().module;
-                validate_owner(&modules, generation_index, module, "conditional inherent dispatch")?;
-                if dispatch.get_conditional_members(target).is_some() {
+                if members.target.as_ref().is_some_and(|published| published != target) {
                     return Err(incomplete(format!(
-                        "conditional inherent dispatch target is owned by multiple immutable artifact generations: {:?}",
+                        "conditional inherent dispatch key disagrees with its published target: {:?}",
                         target
                     )));
                 }
-                dispatch.register_conditional_members(target.clone(), Arc::clone(members));
+                let composed = conditional_dispatch
+                    .entry(target.clone())
+                    .or_insert_with(|| crate::impls::ConditionalInherentMemberSet::new(Some(target.clone())));
+                for member in &members.members {
+                    validate_owner(
+                        &modules,
+                        generation_index,
+                        &member.impl_id.module,
+                        "conditional inherent member",
+                    )?;
+                    if composed
+                        .members
+                        .iter()
+                        .any(|existing| existing.impl_id == member.impl_id && existing.callable == member.callable)
+                    {
+                        return Err(incomplete(format!(
+                            "conditional inherent member is owned by multiple immutable artifact generations: {:?} / {:?}",
+                            member.impl_id, member.callable
+                        )));
+                    }
+                    composed.add_member(member.clone());
+                }
             }
 
             for (callable, signature) in snapshot.callable_signatures.iter() {
@@ -433,9 +455,17 @@ impl ExternalSemanticSessionSeed {
             }
         }
 
-        // Dispatch buckets are derived from the complete composed primary
-        // conformance + trait surface authority. They are intentionally not
-        // concatenated from generation-local precomputed indexes.
+        // Conditional dispatch sets are target-indexed derived aggregates. A
+        // target can legitimately receive members from multiple source-owned
+        // impl generations, so merge source-owned members first and publish one
+        // rebuilt target set rather than treating the target bucket as owned.
+        for (target, members) in conditional_dispatch {
+            dispatch.register_conditional_members(target, Arc::new(members));
+        }
+
+        // Trait dispatch buckets are likewise derived from the complete
+        // composed primary conformance + trait surface authority. They are
+        // intentionally not concatenated from generation-local indexes.
         let _trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build(&conformance_index, &trait_surfaces);
 
         Ok(Self {
