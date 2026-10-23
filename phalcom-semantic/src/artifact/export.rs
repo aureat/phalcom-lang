@@ -623,8 +623,35 @@ pub fn export_structural_primary_contracts(
     type_aliases: &TypeAliasTable,
     limits: &ValidationLimits,
 ) -> Result<StructuralPrimaryContractsV1, ArtifactError> {
+    export_structural_primary_contracts_scoped(
+        types,
+        &super::projection::ArtifactProjectionScope::whole_image(),
+        data_table,
+        enum_table,
+        declarations,
+        hierarchy,
+        type_aliases,
+        limits,
+    )
+}
+
+/// Exports structural primary contracts for exactly the declarations `scope` owns.
+///
+/// References to dependency-owned declarations (superclasses, component types)
+/// survive as stable references; their contracts are not re-exported.
+#[allow(clippy::too_many_arguments)]
+pub fn export_structural_primary_contracts_scoped(
+    types: &TypeExportContext,
+    scope: &super::projection::ArtifactProjectionScope,
+    data_table: &DataSemanticTable,
+    enum_table: &EnumSemanticTable,
+    declarations: &DeclarationTypeTable,
+    hierarchy: &MapTypeHierarchy,
+    type_aliases: &TypeAliasTable,
+    limits: &ValidationLimits,
+) -> Result<StructuralPrimaryContractsV1, ArtifactError> {
     let mut declaration_shells = Vec::new();
-    let mut sorted_declarations = declarations.iter().collect::<Vec<_>>();
+    let mut sorted_declarations = declarations.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     sorted_declarations.sort_by(|a, b| a.0.cmp(b.0));
 
     let mut generic_signatures = Vec::new();
@@ -651,7 +678,7 @@ pub fn export_structural_primary_contracts(
     let mut hierarchy_and_aliases = Vec::new();
     let mut seen_hierarchy = BTreeSet::new();
 
-    let mut superclasses = hierarchy.iter_superclasses().collect::<Vec<_>>();
+    let mut superclasses = hierarchy.iter_superclasses().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     superclasses.sort_by(|a, b| a.0.cmp(b.0));
 
     for (class_id, super_id) in superclasses {
@@ -666,7 +693,7 @@ pub fn export_structural_primary_contracts(
         });
     }
 
-    let mut aliases = type_aliases.iter().collect::<Vec<_>>();
+    let mut aliases = type_aliases.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     aliases.sort_by(|a, b| a.0.cmp(b.0));
 
     for (alias_id, info) in aliases {
@@ -683,7 +710,7 @@ pub fn export_structural_primary_contracts(
     }
 
     let mut data_contracts = Vec::new();
-    let mut data_decls = data_table.data_decls.iter().collect::<Vec<_>>();
+    let mut data_decls = data_table.data_decls.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     data_decls.sort_by(|a, b| a.0.cmp(b.0));
 
     for (_, info) in data_decls {
@@ -723,7 +750,7 @@ pub fn export_structural_primary_contracts(
     }
 
     let mut enum_contracts = Vec::new();
-    let mut enums = enum_table.enums.iter().collect::<Vec<_>>();
+    let mut enums = enum_table.enums.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     enums.sort_by(|a, b| a.0.cmp(b.0));
 
     let mut variant_contracts = Vec::new();
@@ -3457,12 +3484,26 @@ pub(super) fn export_enum_requirements(
     enum_semantics: &EnumSemanticTable,
     types: &TypeExportContext,
 ) -> Result<Vec<EnumRequirementOwnerV1>, ArtifactError> {
-    if requirements.requirements.len() != enum_semantics.enums.len() || requirements.case_statuses.len() != requirements.requirements.len() {
+    export_enum_requirements_scoped(requirements, enum_semantics, &super::projection::ArtifactProjectionScope::whole_image(), types)
+}
+
+/// Exports enum requirements for exactly the enums `scope` owns, failing closed
+/// unless the owned requirement rows cover the owned enum set.
+pub(super) fn export_enum_requirements_scoped(
+    requirements: &EnumRequirementTable,
+    enum_semantics: &EnumSemanticTable,
+    scope: &super::projection::ArtifactProjectionScope,
+    types: &TypeExportContext,
+) -> Result<Vec<EnumRequirementOwnerV1>, ArtifactError> {
+    let owned_enums = enum_semantics.enums.iter().filter(|(id, _)| scope.owns_declaration(id)).count();
+    let owned_requirements = requirements.requirements.iter().filter(|(id, _)| scope.owns_declaration(id)).count();
+    let owned_statuses = requirements.case_statuses.iter().filter(|(id, _)| scope.owns_declaration(id)).count();
+    if owned_requirements != owned_enums || owned_statuses != owned_requirements {
         return Err(referential("enum requirement table does not cover the published enum owner set"));
     }
 
-    let mut owners = Vec::with_capacity(requirements.requirements.len());
-    for (owner, owner_requirements) in requirements.requirements.iter() {
+    let mut owners = Vec::with_capacity(owned_requirements);
+    for (owner, owner_requirements) in requirements.requirements.iter().filter(|(id, _)| scope.owns_declaration(id)) {
         let enum_info = enum_semantics
             .enum_info(owner)
             .ok_or_else(|| referential("enum requirement owner has no structural enum authority"))?;
@@ -3955,7 +3996,24 @@ pub(super) fn export_associated_authority(
     surface_products: &crate::associated::AssociatedFamilyTable,
     types: &TypeExportContext,
 ) -> Result<ExportedAssociatedAuthority, ArtifactError> {
-    let mut type_member_products = type_member_products.iter().collect::<Vec<_>>();
+    export_associated_authority_scoped(type_member_products, static_domain_products, surface_products, &super::projection::ArtifactProjectionScope::whole_image(), types)
+}
+
+/// Exports associated type-member, static-domain, and surface authority owned by `scope`.
+pub(super) fn export_associated_authority_scoped(
+    type_member_products: &crate::parent_map::ParentMap<
+        crate::types::type_member::TypeMemberDeclarationId,
+        std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>,
+    >,
+    static_domain_products: &crate::ordered_map::OrderedMap<
+        crate::identity::AssociatedStaticDomainDeclarationId,
+        std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>,
+    >,
+    surface_products: &crate::associated::AssociatedFamilyTable,
+    scope: &super::projection::ArtifactProjectionScope,
+    types: &TypeExportContext,
+) -> Result<ExportedAssociatedAuthority, ArtifactError> {
+    let mut type_member_products = type_member_products.iter().filter(|(id, _)| scope.owns_type_member(id)).collect::<Vec<_>>();
     type_member_products.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     let mut type_member_declarations = Vec::with_capacity(type_member_products.len());
     for (id, product) in type_member_products {
@@ -3984,7 +4042,7 @@ pub(super) fn export_associated_authority(
     }
 
     let mut associated_static_domains = Vec::with_capacity(static_domain_products.len());
-    for (id, product) in static_domain_products {
+    for (id, product) in static_domain_products.iter().filter(|(id, _)| scope.owns_associated_static_domain(id)) {
         if id != &product.id {
             return Err(referential("associated static-domain identity does not match its checked product"));
         }
@@ -3999,7 +4057,7 @@ pub(super) fn export_associated_authority(
         });
     }
 
-    let mut associated_surface_products = surface_products.surfaces.iter().collect::<Vec<_>>();
+    let mut associated_surface_products = surface_products.surfaces.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     associated_surface_products.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     let mut associated_surfaces = Vec::with_capacity(associated_surface_products.len());
     for (owner, surface) in associated_surface_products {
@@ -4030,19 +4088,41 @@ pub(super) fn export_associated_authority(
     })
 }
 
+/// Exports the whole snapshot as the artifact-owned semantic world.
+///
+/// Canonical Universe convenience; package artifacts use [`export_semantic_world_scoped`].
 pub fn export_semantic_world(
     snapshot: &SemanticSnapshot,
     types: &TypeExportContext,
     statics: &StaticExportContext,
     limits: &ValidationLimits,
 ) -> Result<SemanticWorldV3, ArtifactError> {
+    let scope = super::projection::ArtifactProjectionScope::whole_image();
+    export_semantic_world_scoped(super::projection::ArtifactSemanticProjection::new(snapshot, &scope), types, statics, limits)
+}
+
+/// Exports exactly the primary semantic rows the projection's scope owns.
+///
+/// Dependency-owned rows are omitted; references from owned rows to
+/// dependency identities survive as stable references. Derived aggregates
+/// (conditional inherent sets) are rebuilt from owned contributions only.
+/// `types` and `statics` must have been rooted through the same scope.
+pub fn export_semantic_world_scoped(
+    projection: super::projection::ArtifactSemanticProjection<'_>,
+    types: &TypeExportContext,
+    statics: &StaticExportContext,
+    limits: &ValidationLimits,
+) -> Result<SemanticWorldV3, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
 
-    validate_semantic_world_export_coverage(snapshot)?;
+    let snapshot = projection.snapshot();
+    let scope = projection.scope();
+    validate_semantic_world_export_coverage(snapshot, scope)?;
 
     let type_graph = types.project_graph(&snapshot.store, limits)?;
-    let structural_contracts = export_structural_primary_contracts(
+    let structural_contracts = export_structural_primary_contracts_scoped(
         types,
+        scope,
         &snapshot.data_semantics,
         &snapshot.enum_semantics,
         &snapshot.declarations,
@@ -4052,7 +4132,7 @@ pub fn export_semantic_world(
     )?;
     let static_values = statics.project_graph(snapshot.static_values.as_ref(), types, limits)?;
 
-    let mut ordered_analyses = snapshot.callable_analyses.iter().collect::<Vec<_>>();
+    let mut ordered_analyses = snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)).collect::<Vec<_>>();
     ordered_analyses.sort_unstable_by(|(left, _), (right, _)| to_stable_callable(left).cmp(&to_stable_callable(right)));
     let mut portable_explanations = BTreeMap::new();
     let mut portable_causes = BTreeMap::new();
@@ -4067,7 +4147,7 @@ pub fn export_semantic_world(
         }
     }
 
-    let mut ordered_witness_plans = snapshot.conformance_witness_plans.iter().collect::<Vec<_>>();
+    let mut ordered_witness_plans = snapshot.conformance_witness_plans.iter().filter(|(id, _)| scope.owns_impl(id)).collect::<Vec<_>>();
     ordered_witness_plans.sort_unstable_by(|(left, _), (right, _)| to_stable_impl(left).cmp(&to_stable_impl(right)));
     for (_, plan) in &ordered_witness_plans {
         for diagnostic in plan.diagnostics.iter().chain(plan.associated_type_plan.diagnostics.iter()) {
@@ -4079,7 +4159,7 @@ pub fn export_semantic_world(
             }
         }
     }
-    for rule in snapshot.derived_conformance_rules.iter() {
+    for rule in snapshot.derived_conformance_rules.iter().filter(|rule| scope.owns_impl(&rule.impl_id)) {
         for diagnostic in &rule.associated_type_plan.diagnostics {
             if let Some(cause) = diagnostic.root_cause
                 && !portable_causes.contains_key(&cause)
@@ -4090,7 +4170,7 @@ pub fn export_semantic_world(
         }
     }
 
-    let mut ordered_static_definitions = snapshot.static_definitions.iter().collect::<Vec<_>>();
+    let mut ordered_static_definitions = snapshot.static_definitions.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     ordered_static_definitions.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration(left).cmp(&to_stable_declaration(right)));
     for (_, product) in &ordered_static_definitions {
         for diagnostic in product.diagnostics.iter() {
@@ -4102,7 +4182,7 @@ pub fn export_semantic_world(
             }
         }
     }
-    let mut ordered_static_constants = snapshot.static_constants.iter().collect::<Vec<_>>();
+    let mut ordered_static_constants = snapshot.static_constants.iter().filter(|(id, _)| scope.owns_static_constant(id)).collect::<Vec<_>>();
     ordered_static_constants.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     for (_, product) in &ordered_static_constants {
         for diagnostic in product.diagnostics.iter() {
@@ -4211,7 +4291,7 @@ pub fn export_semantic_world(
         });
     }
 
-    let mut ordered_module_bindings = snapshot.module_static_bindings.iter().collect::<Vec<_>>();
+    let mut ordered_module_bindings = snapshot.module_static_bindings.iter().filter(|(id, _)| scope.owns_module(id)).collect::<Vec<_>>();
     ordered_module_bindings.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     let mut module_static_bindings = Vec::with_capacity(ordered_module_bindings.len());
     for (module, index) in ordered_module_bindings {
@@ -4345,7 +4425,7 @@ pub fn export_semantic_world(
         });
     }
 
-    let mut ordered_derived_rules = snapshot.derived_conformance_rules.iter().collect::<Vec<_>>();
+    let mut ordered_derived_rules = snapshot.derived_conformance_rules.iter().filter(|rule| scope.owns_impl(&rule.impl_id)).collect::<Vec<_>>();
     ordered_derived_rules.sort_unstable_by(|left, right| to_stable_impl(&left.impl_id).cmp(&to_stable_impl(&right.impl_id)));
     let mut derived_conformance_rules = Vec::with_capacity(ordered_derived_rules.len());
     for rule in ordered_derived_rules {
@@ -4373,13 +4453,13 @@ pub fn export_semantic_world(
     }
 
     let mut callable_signatures = Vec::new();
-    for (_, sig) in snapshot.callable_signatures.iter() {
+    for (_, sig) in snapshot.callable_signatures.iter().filter(|(id, _)| scope.owns_callable(id)) {
         callable_signatures.push(export_callable_signature(sig, types)?);
     }
     callable_signatures.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
     let mut callable_definitions = Vec::new();
-    for (callable, definition) in snapshot.callable_definitions.iter() {
+    for (callable, definition) in snapshot.callable_definitions.iter().filter(|(id, _)| scope.owns_callable(id)) {
         if callable != &definition.callable {
             return Err(referential("callable definition table key disagrees with its owner"));
         }
@@ -4394,7 +4474,7 @@ pub fn export_semantic_world(
     callable_definitions.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
     let mut callable_analyses = Vec::new();
-    for (callable_id, analysis) in snapshot.callable_analyses.iter() {
+    for (callable_id, analysis) in snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)) {
         let source_callable = snapshot.callable_signatures.id_for_body(callable_id).unwrap_or_else(|| callable_id.clone());
         let mut binding_source_authorities = std::collections::BTreeMap::new();
         for (binding, state) in &analysis.bindings {
@@ -4438,10 +4518,10 @@ pub fn export_semantic_world(
     }
     callable_analyses.sort_unstable_by(|left, right| left.callable.cmp(&right.callable));
 
-    let mut trait_owners = snapshot.trait_surfaces.iter().collect::<Vec<_>>();
+    let mut trait_owners = snapshot.trait_surfaces.iter().filter(|(id, _)| scope.owns_declaration(id)).collect::<Vec<_>>();
     trait_owners.sort_unstable_by(|(left, _), (right, _)| to_stable_declaration(left).cmp(&to_stable_declaration(right)));
     let mut portable_explanations = BTreeMap::new();
-    for (callable, analysis) in snapshot.callable_analyses.iter() {
+    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)) {
         portable_explanations.insert(callable.clone(), assign_local_ordinals(analysis.explanations.iter().map(|(id, _)| *id))?);
     }
     let mut portable_causes = BTreeMap::new();
@@ -4544,7 +4624,7 @@ pub fn export_semantic_world(
     trait_surfaces.sort_unstable_by(|left, right| left.declaration.cmp(&right.declaration));
 
     let mut dispatch_surfaces = Vec::new();
-    for (decl_id, surface) in snapshot.surfaces.iter() {
+    for (decl_id, surface) in snapshot.surfaces.iter().filter(|(id, _)| scope.owns_declaration(id)) {
         let declaration = to_stable_declaration(decl_id);
         let dispatch_callables =
             |side: crate::identity::DispatchSide, member_surface: &crate::surface::MemberSurface| -> Result<Vec<wire::DispatchCallableFactV1>, ArtifactError> {
@@ -4687,8 +4767,14 @@ pub fn export_semantic_world(
         if set.target.as_ref() != Some(target) {
             return Err(referential("conditional inherent member set target disagrees with its resolver owner"));
         }
+        // Rebuild the target bucket from owned contributions only: ownership follows
+        // the contributing impl, never the (possibly dependency-owned) target.
+        let owned_members = set.members.iter().filter(|member| scope.owns_impl(&member.impl_id)).collect::<Vec<_>>();
+        if owned_members.is_empty() {
+            continue;
+        }
         let mut domains = BTreeMap::new();
-        for member in &set.members {
+        for member in owned_members.iter().copied() {
             if let Some(existing) = domains.insert(member.impl_id.clone(), member.domain.clone())
                 && existing.as_ref() != member.domain.as_ref()
             {
@@ -4718,9 +4804,9 @@ pub fn export_semantic_world(
                 })
             })
             .collect::<Result<Vec<_>, ArtifactError>>()?;
-        let members = set
-            .members
+        let members = owned_members
             .iter()
+            .copied()
             .enumerate()
             .map(|(member_order, member)| -> Result<_, ArtifactError> {
                 let member_order = u32::try_from(member_order).map_err(|_| referential("conditional inherent member order exceeds portable range"))?;
@@ -4751,7 +4837,7 @@ pub fn export_semantic_world(
     });
 
     let mut conformance_heads = Vec::new();
-    for (impl_id, contribution) in snapshot.conformance_index.iter() {
+    for (impl_id, contribution) in snapshot.conformance_index.iter().filter(|(id, _)| scope.owns_impl(id)) {
         let stable_impl = to_stable_impl(impl_id);
         let source_module = to_stable_module(&contribution.source_module);
         let target = match &contribution.target {
@@ -4789,7 +4875,7 @@ pub fn export_semantic_world(
     }
 
     let mut constructor_initializations = Vec::new();
-    for (_, product) in snapshot.constructor_initializations.iter() {
+    for (_, product) in snapshot.constructor_initializations.iter().filter(|(_, product)| scope.owns_callable(&product.factory)) {
         let factory = to_stable_callable(&product.factory);
         let initializer = to_stable_callable(&product.initializer);
         let origin = match product.origin {
@@ -4826,16 +4912,17 @@ pub fn export_semantic_world(
         type_member_declarations,
         associated_static_domains,
         associated_surfaces,
-    } = export_associated_authority(
+    } = export_associated_authority_scoped(
         &snapshot.type_member_declarations,
         &snapshot.associated_static_domains,
         &snapshot.associated_surfaces,
+        scope,
         types,
     )?;
-    let enum_requirements = export_enum_requirements(&snapshot.enum_requirements, &snapshot.enum_semantics, types)?;
+    let enum_requirements = export_enum_requirements_scoped(&snapshot.enum_requirements, &snapshot.enum_semantics, scope, types)?;
 
     let mut static_case_catalogs = Vec::with_capacity(snapshot.static_case_catalogs.len());
-    for (domain, catalog) in snapshot.static_case_catalogs.iter() {
+    for (domain, catalog) in snapshot.static_case_catalogs.iter().filter(|(id, _)| scope.owns_static_domain(id)) {
         if domain != &catalog.domain {
             return Err(referential("static-case catalog table key disagrees with its owner"));
         }
@@ -4862,7 +4949,7 @@ pub fn export_semantic_world(
         });
     }
     let mut static_case_signatures = Vec::with_capacity(snapshot.static_case_signatures.len());
-    for (case_id, signature) in snapshot.static_case_signatures.iter() {
+    for (case_id, signature) in snapshot.static_case_signatures.iter().filter(|(id, _)| scope.owns_static_case(id)) {
         if case_id != &signature.id {
             return Err(referential("static-case signature table key disagrees with its owner"));
         }
@@ -4939,14 +5026,39 @@ pub fn export_semantic_world_v4_with_runtime_requirements(
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
+    let scope = super::projection::ArtifactProjectionScope::whole_image();
+    export_semantic_world_v4_scoped(
+        super::projection::ArtifactSemanticProjection::new(snapshot, &scope),
+        types,
+        statics,
+        module_world,
+        runtime_requirements,
+        limits,
+    )
+}
+
+/// Exports schema-V4 semantic authority for exactly the rows the projection's scope owns.
+///
+/// `module_world` must be the artifact's own (scope-projected) module world, and
+/// `types`/`statics` must have been rooted through the same scope.
+pub fn export_semantic_world_v4_scoped(
+    projection: super::projection::ArtifactSemanticProjection<'_>,
+    types: &TypeExportContext,
+    statics: &StaticExportContext,
+    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+    limits: &ValidationLimits,
+) -> Result<phalcom_compiler_artifact::semantic::world::SemanticWorldV4, ArtifactError> {
     use phalcom_compiler_artifact::semantic::world as wire;
 
-    let base = export_semantic_world(snapshot, types, statics, limits)?;
-    let structural_contracts = export_structural_primary_contracts_v2(snapshot, types, base.structural_contracts, limits)?;
-    let module_execution_authority = export_module_execution_authority(snapshot, module_world, runtime_requirements)?;
+    let snapshot = projection.snapshot();
+    let scope = projection.scope();
+    let base = export_semantic_world_scoped(projection, types, statics, limits)?;
+    let structural_contracts = export_structural_primary_contracts_v2(snapshot, scope, types, base.structural_contracts, limits)?;
+    let module_execution_authority = export_module_execution_authority(snapshot, scope, module_world, runtime_requirements)?;
 
     let mut native_analyses = BTreeMap::new();
-    for (callable, analysis) in snapshot.callable_analyses.iter() {
+    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)) {
         let stable = to_stable_callable(callable);
         if native_analyses.insert(stable, (callable, analysis)).is_some() {
             return Err(referential("callable analyses have duplicate stable owners"));
@@ -5034,6 +5146,7 @@ pub fn export_semantic_world_v4_with_runtime_requirements(
 
 fn export_structural_primary_contracts_v2(
     snapshot: &SemanticSnapshot,
+    scope: &super::projection::ArtifactProjectionScope,
     types: &TypeExportContext,
     base: phalcom_compiler_artifact::semantic::aggregates::StructuralPrimaryContractsV1,
     limits: &ValidationLimits,
@@ -5096,7 +5209,7 @@ fn export_structural_primary_contracts_v2(
     }
 
     let mut intrinsic_static_domains_by_owner = BTreeMap::new();
-    for declaration in snapshot.declarations.intrinsic_static_domain_declarations() {
+    for declaration in snapshot.declarations.intrinsic_static_domain_declarations().filter(|id| scope.owns_declaration(id)) {
         let kind = snapshot
             .declarations
             .intrinsic_static_domain_kind(declaration)
@@ -5113,7 +5226,7 @@ fn export_structural_primary_contracts_v2(
         .collect();
 
     let mut intrinsic_type_owners_by_owner = BTreeMap::new();
-    for declaration in snapshot.declarations.intrinsic_type_owner_declarations() {
+    for declaration in snapshot.declarations.intrinsic_type_owner_declarations().filter(|id| scope.owns_declaration(id)) {
         let owner = snapshot
             .declarations
             .intrinsic_type_owner(declaration)
@@ -5134,10 +5247,10 @@ fn export_structural_primary_contracts_v2(
         .collect();
 
     let mut hierarchy_ids = BTreeMap::<crate::identity::DeclarationId, Option<crate::identity::DeclarationId>>::new();
-    for (declaration, superclass) in snapshot.hierarchy.iter_superclasses() {
+    for (declaration, superclass) in snapshot.hierarchy.iter_superclasses().filter(|(id, _)| scope.owns_declaration(id)) {
         hierarchy_ids.insert(declaration.clone(), Some(superclass.clone()));
     }
-    for (declaration, info) in snapshot.declarations.iter() {
+    for (declaration, info) in snapshot.declarations.iter().filter(|(id, _)| scope.owns_declaration(id)) {
         if info.supertype_template.is_some() {
             hierarchy_ids.entry(declaration.clone()).or_insert(None);
         }
@@ -5166,7 +5279,7 @@ fn export_structural_primary_contracts_v2(
     }
 
     let mut type_aliases = Vec::new();
-    for (declaration, alias) in snapshot.type_aliases.iter() {
+    for (declaration, alias) in snapshot.type_aliases.iter().filter(|(id, _)| scope.owns_declaration(id)) {
         if declaration != &alias.declaration || alias.source.module != declaration.module {
             return Err(referential("type alias identity or logical source owner disagrees with its declaration"));
         }
@@ -5319,6 +5432,7 @@ pub(crate) fn export_runtime_dependency_requirements(
 
 fn export_module_execution_authority(
     snapshot: &SemanticSnapshot,
+    scope: &super::projection::ArtifactProjectionScope,
     module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
     runtime_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
 ) -> Result<phalcom_compiler_artifact::semantic::world::ModuleExecutionAuthorityV1, ArtifactError> {
@@ -5329,6 +5443,7 @@ fn export_module_execution_authority(
         let Some((module, product)) = snapshot
             .import_phase_products
             .iter()
+            .filter(|(module, _)| scope.owns_module(module))
             .find(|(module, _)| to_stable_module(module) == module_row.identity)
         else {
             return Err(referential("module world module has no current import phase product"));
@@ -5369,7 +5484,7 @@ fn export_module_execution_authority(
         });
     }
     import_phase_products.sort_unstable_by(|left, right| left.module.cmp(&right.module));
-    if import_phase_products.len() != snapshot.import_phase_products.len() {
+    if import_phase_products.len() != snapshot.import_phase_products.iter().filter(|(module, _)| scope.owns_module(module)).count() {
         return Err(referential("import phase products contain modules outside the serialized module world"));
     }
 
@@ -5384,15 +5499,15 @@ fn export_module_execution_authority(
 /// Stops the writer before it emits an image whose importer would have to
 /// fabricate or discard required compiler authority. As each omitted family
 /// gains an owner-controlled wire adapter, remove its corresponding blocker.
-fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot) -> Result<(), ArtifactError> {
-    for (callable, analysis) in snapshot.callable_analyses.iter() {
+fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot, scope: &super::projection::ArtifactProjectionScope) -> Result<(), ArtifactError> {
+    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(id, _)| scope.owns_callable(id)) {
         let local_ids = CallableAnalysisOrdinalMap::new(callable, analysis)?;
         if local_ids.owner != to_stable_callable(callable) {
             return Err(referential("callable analysis ordinal owner is not canonical"));
         }
         let _local_counts = local_ids.local_counts();
     }
-    for (owner, plan) in snapshot.conformance_witness_plans.iter() {
+    for (owner, plan) in snapshot.conformance_witness_plans.iter().filter(|(id, _)| scope.owns_impl(id)) {
         if owner != &plan.impl_id || plan.associated_type_plan.impl_id != plan.impl_id {
             return Err(referential("conformance witness plan identity disagrees with its owner"));
         }
