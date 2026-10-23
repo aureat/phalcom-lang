@@ -1854,6 +1854,71 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
             .ok_or_else(|| invalid("referenced static constructor not resolved"))
     }
 
+    fn finish_kind(&mut self, id: ArtifactKindId, data: KindData) -> KindId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.intern_kind(data); }
+        self.decoded_kinds[id.0 as usize] = Some(data);
+        KindId(id.0)
+    }
+
+    fn finish_parameter(&mut self, id: ArtifactTypeParameterId, data: TypeParameterData) -> TypeParameterId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.intern_type_parameter(data); }
+        self.decoded_parameters[id.0 as usize] = Some(data);
+        TypeParameterId(id.0)
+    }
+
+    fn finish_row(&mut self, id: ArtifactRecordRowId, data: RecordRowData) -> RecordRowId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.intern_record_row(data); }
+        self.decoded_rows[id.0 as usize] = Some(data);
+        RecordRowId(id.0)
+    }
+
+    fn finish_family(&mut self, id: ArtifactFamilyTypeId, data: FamilyType) -> FamilyTypeId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.intern_family_data(data); }
+        self.decoded_families[id.0 as usize] = Some(data);
+        FamilyTypeId(id.0)
+    }
+
+    fn finish_variant(&mut self, id: ArtifactVariantTypeId, data: VariantId) -> VariantTypeId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.intern_variant_identity(data); }
+        self.decoded_variants[id.0 as usize] = Some(data);
+        VariantTypeId(id.0)
+    }
+
+    fn finish_domain(&mut self, id: ArtifactStaticDomainId, data: StaticDomainData) -> StaticDomainId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.intern_static_domain(data); }
+        self.decoded_domains[id.0 as usize] = Some(data);
+        StaticDomainId(id.0)
+    }
+
+    fn finish_constructor(&mut self, id: ArtifactStaticConstructorId, data: AlgebraicStaticConstructorData) -> AlgebraicStaticConstructorId {
+        if let Some(receiver) = self.receiver.as_deref_mut() {
+            return receiver.intern_static_constructor(data.domain, data.declaration, data.case_name, data.parameter_kinds);
+        }
+        self.decoded_constructors[id.0 as usize] = Some(data);
+        AlgebraicStaticConstructorId(id.0)
+    }
+
+    fn finish_type(&mut self, id: ArtifactTypeId, data: TypeData, kind: KindId) -> TypeId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.intern_with_kind(data, kind); }
+        self.decoded_types[id.0 as usize] = Some(data);
+        self.decoded_type_kinds[id.0 as usize] = Some(kind);
+        TypeId(id.0)
+    }
+
+    fn finish_scoped(&mut self, id: ArtifactScopedTypeId, data: ScopedTypeData) -> ScopedTypeId {
+        if let Some(receiver) = self.receiver.as_deref_mut() { return receiver.arena_mut().intern_scoped(data); }
+        self.decoded_scoped[id.0 as usize] = Some(data);
+        ScopedTypeId(id.0)
+    }
+
+    fn finish_lambda(&mut self, id: ArtifactTypeLambdaId, data: TypeLambdaData) -> TypeLambdaId {
+        if let Some(receiver) = self.receiver.as_deref_mut() {
+            return receiver.arena_mut().intern_lambda_with_modes(data.parameter_kinds, data.parameter_modes, data.body, data.result_kind, None);
+        }
+        self.decoded_lambdas[id.0 as usize] = Some(data);
+        TypeLambdaId(id.0)
+    }
+
     resolve_node!(ty: types(ArtifactTypeId) -> TypeId, Type, build_type, kind: kinds(ArtifactKindId) -> KindId, Kind, build_kind, parameter: parameters(ArtifactTypeParameterId) -> TypeParameterId, Parameter, build_parameter, row: rows(ArtifactRecordRowId) -> RecordRowId, Row, build_row, family: families(ArtifactFamilyTypeId) -> FamilyTypeId, Family, build_family, variant: variants(ArtifactVariantTypeId) -> VariantTypeId, Variant, build_variant, domain: domains(ArtifactStaticDomainId) -> StaticDomainId, Domain, build_domain, constructor: constructors(ArtifactStaticConstructorId) -> AlgebraicStaticConstructorId, Constructor, build_constructor, scoped: scoped(ArtifactScopedTypeId) -> ScopedTypeId, Scoped, build_scoped, lambda: lambdas(ArtifactTypeLambdaId) -> TypeLambdaId, Lambda, build_lambda);
     fn args(&mut self, values: &[StaticArgumentV1]) -> Result<Box<[StaticArgument]>, ArtifactError> {
         let mut result = self.allocations.vector(values.len()).map_err(|e| ArtifactError::Allocation(e))?;
@@ -1985,8 +2050,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
             }
             KindV1::StaticDomain { domain } => KindData::StaticDomain(self.domain(*domain)?),
         };
-        self.decoded_kinds[id.0 as usize] = Some(data);
-        Ok(KindId(id.0))
+        Ok(self.finish_kind(id, data))
     }
     fn build_parameter(&mut self, id: ArtifactTypeParameterId) -> Result<TypeParameterId, ArtifactError> {
         let data = &self.graph.parameters[id.0 as usize];
@@ -2005,8 +2069,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
             mode: mode_in(&data.mode),
             source: None,
         };
-        self.decoded_parameters[id.0 as usize] = Some(param_data);
-        Ok(TypeParameterId(id.0))
+        Ok(self.finish_parameter(id, param_data))
     }
     fn build_domain(&mut self, id: ArtifactStaticDomainId) -> Result<StaticDomainId, ArtifactError> {
         let data = match &self.graph.static_domains[id.0 as usize] {
@@ -2022,8 +2085,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
                 owner_arguments: self.args(arguments)?,
             },
         };
-        self.decoded_domains[id.0 as usize] = Some(data);
-        Ok(StaticDomainId(id.0))
+        Ok(self.finish_domain(id, data))
     }
     fn build_constructor(&mut self, id: ArtifactStaticConstructorId) -> Result<AlgebraicStaticConstructorId, ArtifactError> {
         let data = &self.graph.static_constructors[id.0 as usize];
@@ -2040,16 +2102,14 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
             case_name,
             parameter_kinds: kinds,
         };
-        self.decoded_constructors[id.0 as usize] = Some(ctor_data);
-        Ok(AlgebraicStaticConstructorId(id.0))
+        Ok(self.finish_constructor(id, ctor_data))
     }
     fn build_variant(&mut self, id: ArtifactVariantTypeId) -> Result<VariantTypeId, ArtifactError> {
         let data = &self.graph.variants[id.0 as usize];
         let owner = declaration_in_with_allocation_budget(&data.owner, self.allocations, self.owner_catalog)?;
         let selector = crate::artifact::import::import_stable_selector_with_allocation_budget(&data.selector, self.allocations)?;
         let variant = VariantId::new(owner, selector);
-        self.decoded_variants[id.0 as usize] = Some(variant);
-        Ok(VariantTypeId(id.0))
+        Ok(self.finish_variant(id, variant))
     }
     fn build_row(&mut self, id: ArtifactRecordRowId) -> Result<RecordRowId, ArtifactError> {
         let data = &self.graph.rows[id.0 as usize];
@@ -2075,8 +2135,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
         };
         let fields = self.allocations.boxed_slice(fields).map_err(ArtifactError::Allocation)?;
         let row_data = RecordRowData { fields, tail };
-        self.decoded_rows[id.0 as usize] = Some(row_data);
-        Ok(RecordRowId(id.0))
+        Ok(self.finish_row(id, row_data))
     }
     fn build_family(&mut self, id: ArtifactFamilyTypeId) -> Result<FamilyTypeId, ArtifactError> {
         let data = &self.graph.families[id.0 as usize];
@@ -2104,8 +2163,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
         }
         let members = self.allocations.boxed_slice(members).map_err(ArtifactError::Allocation)?;
         let family = FamilyType::new(members);
-        self.decoded_families[id.0 as usize] = Some(family);
-        Ok(FamilyTypeId(id.0))
+        Ok(self.finish_family(id, family))
     }
     fn build_type(&mut self, id: ArtifactTypeId) -> Result<TypeId, ArtifactError> {
         let entry = &self.graph.types[id.0 as usize];
@@ -2273,9 +2331,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
             }),
         };
         self.validate_type(&data, kind)?;
-        self.decoded_types[id.0 as usize] = Some(data);
-        self.decoded_type_kinds[id.0 as usize] = Some(kind);
-        Ok(TypeId(id.0))
+        Ok(self.finish_type(id, data, kind))
     }
     fn build_scoped(&mut self, id: ArtifactScopedTypeId) -> Result<ScopedTypeId, ArtifactError> {
         let data = match &self.graph.scoped[id.0 as usize] {
@@ -2367,8 +2423,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
             },
             ScopedTypeV1::Lambda { lambda } => ScopedTypeData::Lambda(self.lambda(*lambda)?),
         };
-        self.decoded_scoped[id.0 as usize] = Some(data);
-        Ok(ScopedTypeId(id.0))
+        Ok(self.finish_scoped(id, data))
     }
     fn build_lambda(&mut self, id: ArtifactTypeLambdaId) -> Result<TypeLambdaId, ArtifactError> {
         let value = &self.graph.lambdas[id.0 as usize];
@@ -2394,8 +2449,7 @@ impl<'a, 'b, 'c, 'd> Import<'a, 'b, 'c, 'd> {
             body,
             result_kind: result,
         };
-        self.decoded_lambdas[id.0 as usize] = Some(lambda_data);
-        Ok(TypeLambdaId(id.0))
+        Ok(self.finish_lambda(id, lambda_data))
     }
     fn validate_type(&self, data: &TypeData, kind: KindId) -> Result<(), ArtifactError> {
         let proper = |ty| {
