@@ -61,7 +61,8 @@ impl StagedTeloscCompilerWire {
     ) -> Result<Vec<usize>, TeloscStagingError> {
         use super::telosc_dependency_plan::{PackageDependencyNode, plan_package_dependencies};
 
-        let mut nodes = allocations.vector::<PackageDependencyNode<'_>>(artifacts.len())
+        let mut plan_budget = allocations.child(allocations.remaining());
+        let mut nodes = plan_budget.vector::<PackageDependencyNode<'_>>(artifacts.len())
             .map_err(ArtifactError::Allocation)?;
         for artifact in artifacts {
             if !matches!(&artifact.header.package_identity, TeloscPackageIdentity::Package { .. }) {
@@ -88,7 +89,9 @@ impl StagedTeloscCompilerWire {
                 external_projects: &wire.external_projects,
             });
         }
-        Ok(plan_package_dependencies(&nodes, limits, allocations)?)
+        let order = plan_package_dependencies(&nodes, limits, &mut plan_budget)?;
+        allocations.commit_child(plan_budget).map_err(ArtifactError::Allocation)?;
+        Ok(order)
     }
 
     /// Decode one compiler-capable artifact without granting it semantic,
@@ -99,26 +102,31 @@ impl StagedTeloscCompilerWire {
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<Self, TeloscStagingError> {
-        let container = TeloscContainerView::parse_with_allocation_budget(bytes, limits, allocations)?;
+        // Private decode transaction: any failure rolls back budget authority
+        // as well as withholding all partially reconstructed wire products.
+        let mut decode_budget = allocations.child(allocations.remaining());
+        let container = TeloscContainerView::parse_with_allocation_budget(bytes, limits, &mut decode_budget)?;
         let sections = StagedCompilerSections::from_container(&container)?;
-        let header = container.header().clone_with_allocation_budget(allocations)
+        let header = container.header().clone_with_allocation_budget(&mut decode_budget)
             .map_err(ArtifactError::Allocation)?;
-        let module_world = ModuleWorldV4::decode_with_allocation_budget(sections.module_world, limits, allocations)?;
-        let semantic_world = SemanticWorldV4::decode_with_allocation_budget(sections.semantic_world, limits, allocations)?;
+        let module_world = ModuleWorldV4::decode_with_allocation_budget(sections.module_world, limits, &mut decode_budget)?;
+        let semantic_world = SemanticWorldV4::decode_with_allocation_budget(sections.semantic_world, limits, &mut decode_budget)?;
         module_world.previous.validate_execution_authority(&semantic_world.module_execution_authority)?;
 
-        let query_image = QueryImageV4::decode_with_allocation_budget(sections.query_image, limits, allocations)?;
+        let query_image = QueryImageV4::decode_with_allocation_budget(sections.query_image, limits, &mut decode_budget)?;
         query_image.validate(limits)?;
         query_image.validate_product_references(&module_world.previous.world, &semantic_world)?;
         query_image.validate_portable_structural_fingerprints_v4(&semantic_world)?;
 
-        let metadata = MetadataSectionV1::decode_with_allocation_budget(sections.metadata, limits, allocations)?;
+        let metadata = MetadataSectionV1::decode_with_allocation_budget(sections.metadata, limits, &mut decode_budget)?;
         if metadata.package_digest != *header.package_identity.digest().as_bytes() {
             return Err(ArtifactError::from(ValidationError::IncompatibleWorld(
                 "metadata package digest does not match artifact header identity".into(),
             )).into());
         }
-        Ok(Self { header, module_world, semantic_world, query_image, metadata })
+        let staged = Self { header, module_world, semantic_world, query_image, metadata };
+        allocations.commit_child(decode_budget).map_err(ArtifactError::Allocation)?;
+        Ok(staged)
     }
 
     /// Completes semantic and immutable-query reconstruction for exactly one
@@ -138,16 +146,17 @@ impl StagedTeloscCompilerWire {
                 "ordinary package executable authority is not supported by compiler-only staging",
             ));
         }
+        let mut generation_budget = allocations.child(allocations.remaining());
         // Validate package receipts, foreign-module exclusion and exact native
         // project bindings before reconstructing semantic owners.
-        let module_products = self.stage_package_modules(projects, resolver, limits, allocations)?;
-        let modules = allocations.arc(module_products).map_err(ArtifactError::Allocation)?;
+        let module_products = self.stage_package_modules(projects, resolver, limits, &mut generation_budget)?;
+        let modules = generation_budget.arc(module_products).map_err(ArtifactError::Allocation)?;
         let parts = validate_and_import_semantic_world_with_module_world_and_project_universe_and_allocation_budget(
             self.semantic_world,
             &self.module_world.previous.world,
             modules.linked().universe.as_ref(),
             limits,
-            allocations,
+            &mut generation_budget,
         )?;
         let header = self.header;
         let compatibility = phalcom_compiler_artifact::CanonicalCompatibilityIdentity {
@@ -177,13 +186,15 @@ impl StagedTeloscCompilerWire {
         // A query-image reader is only valid for the exact imported native
         // type/static generation. Enforce that property before returning.
         queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
-        Ok(StagedPackageSemanticGeneration {
+        let staged = StagedPackageSemanticGeneration {
             world,
             modules,
             snapshot: parts.snapshot,
             queries,
             fingerprints,
-        })
+        };
+        allocations.commit_child(generation_budget).map_err(ArtifactError::Allocation)?;
+        Ok(staged)
     }
 
     /// Privately relocate a package's module products using the caller's
