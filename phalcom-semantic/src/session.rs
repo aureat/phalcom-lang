@@ -2898,9 +2898,14 @@ impl SemanticWorkspaceSession {
         }
         resolver.update_static_case_catalogs(&static_case_catalogs);
         let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
-        let mut static_case_signatures_table = previous_snapshot
-            .as_ref()
-            .map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| (*snapshot.static_case_signatures).clone());
+        let mut static_case_signatures_table = previous_snapshot.as_ref().map_or_else(
+            || {
+                self.external_seed
+                    .as_ref()
+                    .map_or_else(crate::ordered_map::OrderedMap::default, |seed| (*seed.static_case_signatures).clone())
+            },
+            |snapshot| (*snapshot.static_case_signatures).clone(),
+        );
         for case in &signature_case_work {
             static_case_signatures_table.remove(case);
         }
