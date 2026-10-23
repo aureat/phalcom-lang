@@ -1690,7 +1690,7 @@ enum Node {
     Lambda(u32),
 }
 struct Import<'a, 'b, 'c> {
-    owner_catalog: Option<&'c crate::artifact::identity::StableOwnerCatalog<'c>>,
+    owner_catalog: Option<&'c crate::artifact::StableOwnerCatalog<'c>>,
     graph: &'a TypeGraphV1,
     limits: &'a ValidationLimits,
     allocations: &'b mut AllocationBudget,
@@ -1737,7 +1737,7 @@ macro_rules! resolve_node {
 impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
     fn new(
         graph: &'a TypeGraphV1,
-        owner_catalog: Option<&'c crate::artifact::identity::StableOwnerCatalog<'c>>,
+        owner_catalog: Option<&'c crate::artifact::StableOwnerCatalog<'c>>,
         limits: &'a ValidationLimits,
         allocations: &'b mut AllocationBudget,
     ) -> Result<Self, ArtifactError> {
@@ -2523,7 +2523,7 @@ impl<'a, 'b, 'c> Import<'a, 'b, 'c> {
         Ok(())
     }
 }
-fn declaration_in_with_allocation_budget(value: &StableDeclarationRef, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<DeclarationId, ArtifactError> {
+fn declaration_in_with_allocation_budget(value: &StableDeclarationRef, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>) -> Result<DeclarationId, ArtifactError> {
     if value.path.len() != 1 || value.path[0].is_empty() {
         return Err(invalid("invalid canonical declaration path"));
     }
@@ -2534,7 +2534,7 @@ fn declaration_in_with_allocation_budget(value: &StableDeclarationRef, allocatio
 fn module_in_with_allocation_budget(
     value: &StableModuleRef,
     allocations: &mut AllocationBudget,
-    owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+    owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
 ) -> Result<ModuleId, ArtifactError> {
     if let Some(catalog) = owner_catalog {
         // A stable package owner becomes native only through the exact
@@ -2546,7 +2546,7 @@ fn module_in_with_allocation_budget(
     }
     crate::artifact::import::import_stable_module_with_allocation_budget(value, allocations)
 }
-fn callable_in_with_allocation_budget(value: &StableCallableRef, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<CallableId, ArtifactError> {
+fn callable_in_with_allocation_budget(value: &StableCallableRef, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>) -> Result<CallableId, ArtifactError> {
     let owner = match &value.owner {
         StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(declaration_in_with_allocation_budget(owner, allocations, owner_catalog)?),
         StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(VariantId::new(
@@ -2567,7 +2567,7 @@ fn callable_in_with_allocation_budget(value: &StableCallableRef, allocations: &m
         selector: crate::artifact::import::import_stable_selector_with_allocation_budget(&value.selector, allocations)?,
     })
 }
-fn owner_in_with_allocation_budget(value: &ParameterOwnerV1, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>) -> Result<TypeParameterOwner, ArtifactError> {
+fn owner_in_with_allocation_budget(value: &ParameterOwnerV1, allocations: &mut AllocationBudget, owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match value {
         ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration_in_with_allocation_budget(owner, allocations, owner_catalog)?),
         ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(callable_in_with_allocation_budget(owner, allocations, owner_catalog)?),
@@ -2747,7 +2747,7 @@ impl TypeStore {
     /// Existing Universe-only callers retain the strict legacy entry point.
     pub(crate) fn import_type_graph_with_owner_catalog_and_allocation_budget(
         graph: &TypeGraphV1,
-        owner_catalog: Option<&crate::artifact::identity::StableOwnerCatalog<'_>>,
+        owner_catalog: Option<&crate::artifact::StableOwnerCatalog<'_>>,
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<(Self, TypeRelocation), ArtifactError> {
@@ -3295,7 +3295,7 @@ fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits, allocatio
 #[cfg(test)]
 mod artifact_owner_catalog_regressions {
     use super::*;
-    use crate::artifact::identity::{StableOwnerCatalog, empty_owner_inputs};
+    use crate::artifact::{StableOwnerCatalog, empty_owner_inputs};
     use phalcom_modules::{ProjectIdentity, ProjectUniverse};
     use phalcom_type_meta::fingerprint::Fingerprint128;
 
