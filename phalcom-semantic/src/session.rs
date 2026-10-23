@@ -666,6 +666,7 @@ fn contribution_delta(
 pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
     module_session: WorkspaceModuleSession,
+    external_modules: Option<Arc<dyn phalcom_modules::ExternalModuleAuthority>>,
     universe_source_provider: phalcom_modules::UniverseSourceProvider,
     db: SemanticDb,
     store: Arc<TypeStore>,
@@ -824,9 +825,11 @@ impl SemanticWorkspaceSession {
             .collect();
         let alias_forms = Arc::new(snapshot.type_aliases.iter().map(|(declaration, alias)| (declaration.clone(), alias.form)).collect());
         let snapshot = snapshot.clone();
+        let external_modules: Arc<dyn phalcom_modules::ExternalModuleAuthority> = image.modules().clone();
         Self {
             workspace,
-            module_session: WorkspaceModuleSession::with_external_modules(image.modules().clone()),
+            module_session: WorkspaceModuleSession::with_external_modules(Arc::clone(&external_modules)),
+            external_modules: Some(external_modules),
             universe_source_provider: provider,
             db: SemanticDb::with_canonical_image(workspace, image),
             store: snapshot.store.clone(),
@@ -897,6 +900,7 @@ impl SemanticWorkspaceSession {
         Self {
             workspace,
             module_session: WorkspaceModuleSession::with_universe_source_provider(baseline.provider.clone()),
+            external_modules: None,
             universe_source_provider: baseline.provider.clone(),
             db,
             store,
