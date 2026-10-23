@@ -605,6 +605,20 @@ impl From<ModuleWorldV4> for ModuleWorldV5 {
     }
 }
 
+impl From<ModuleWorldV3> for ModuleWorldV5 {
+    /// Lifts a schema-3 world (no bootstrap contract).
+    fn from(world: ModuleWorldV3) -> Self {
+        Self::from(ModuleWorldV4::new(world, Vec::new(), Vec::new()))
+    }
+}
+
+impl From<ModuleWorldV2> for ModuleWorldV5 {
+    /// Lifts a schema-2 world (no witnesses, no bootstrap contract).
+    fn from(world: ModuleWorldV2) -> Self {
+        Self::from(ModuleWorldV3::new(world, Vec::new()))
+    }
+}
+
 impl ModuleWorldV5 {
     /// Lowers to schema 4. Returns `None` iff the world contains an external
     /// reference (rule `MW5-L1`). The Universe writer keeps emitting V4

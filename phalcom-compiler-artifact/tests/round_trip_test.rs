@@ -320,7 +320,7 @@ fn declaration_shell_query_round_trips_nominal_and_alias_product_families() {
         .refresh_portable_structural_fingerprints_v4(&nominal_world)
         .expect("nominal shell portable fingerprints");
     nominal_image
-        .validate_product_references(&sample_module_world(), &nominal_world)
+        .validate_product_references(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(sample_module_world()), &nominal_world)
         .expect("nominal shell row owner");
     nominal_image
         .validate_portable_structural_fingerprints_v4(&nominal_world)
@@ -334,7 +334,7 @@ fn declaration_shell_query_round_trips_nominal_and_alias_product_families() {
     nominal_wrong_family.supported_roots[0].product.family = PortableQueryProductFamilyV1::TypeAlias;
     assert!(
         nominal_wrong_family
-            .validate_product_references(&sample_module_world(), &nominal_world)
+            .validate_product_references(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(sample_module_world()), &nominal_world)
             .is_err()
     );
 
@@ -359,7 +359,7 @@ fn declaration_shell_query_round_trips_nominal_and_alias_product_families() {
         .refresh_portable_structural_fingerprints_v4(&alias_world)
         .expect("alias shell and dependency portable fingerprints");
     alias_image
-        .validate_product_references(&sample_module_world(), &alias_world)
+        .validate_product_references(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(sample_module_world()), &alias_world)
         .expect("alias shell row owner");
     alias_image
         .validate_portable_structural_fingerprints_v4(&alias_world)
@@ -389,13 +389,13 @@ fn declaration_shell_query_round_trips_nominal_and_alias_product_families() {
 
     let mut wrong_index = alias_image.clone();
     wrong_index.supported_roots[0].product.row_index = u32::MAX;
-    assert!(wrong_index.validate_product_references(&sample_module_world(), &alias_world).is_err());
+    assert!(wrong_index.validate_product_references(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(sample_module_world()), &alias_world).is_err());
     let mut wrong_owner = alias_image;
     wrong_owner.supported_roots[0].key.owner = PortableQueryOwnerKeyV1::Declaration(StableDeclarationRef {
         module: alias_world.structural_contracts.type_aliases[alias_index].declaration.module.clone(),
         path: vec!["Different".into()].into_boxed_slice(),
     });
-    assert!(wrong_owner.validate_product_references(&sample_module_world(), &alias_world).is_err());
+    assert!(wrong_owner.validate_product_references(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(sample_module_world()), &alias_world).is_err());
 
     // A valid logical query may not select the nominal table when only an
     // alias row exists for its owner.
@@ -403,7 +403,7 @@ fn declaration_shell_query_round_trips_nominal_and_alias_product_families() {
         alias_world.structural_contracts.type_aliases[alias_index].declaration.clone(),
         PortableQueryProductFamilyV1::NominalDeclarationShell,
     );
-    assert!(wrong_family.validate_product_references(&sample_module_world(), &alias_world).is_err());
+    assert!(wrong_family.validate_product_references(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(sample_module_world()), &alias_world).is_err());
 
     let mut ambiguous_world = alias_world;
     let ambiguous_owner = ambiguous_world.structural_contracts.type_aliases[alias_index].declaration.clone();
@@ -413,7 +413,7 @@ fn declaration_shell_query_round_trips_nominal_and_alias_product_families() {
         ambiguous_world.structural_contracts.type_aliases[alias_index].declaration.clone(),
         PortableQueryProductFamilyV1::TypeAlias,
     );
-    assert!(ambiguous_query.validate_product_references(&sample_module_world(), &ambiguous_world).is_err());
+    assert!(ambiguous_query.validate_product_references(&phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(sample_module_world()), &ambiguous_world).is_err());
 }
 
 fn sample_payload() -> CompilerArtifactPayload {

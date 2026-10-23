@@ -276,7 +276,8 @@ impl CompilerArtifactPayload {
         }
 
         // 5. Verify product references and portable QUERY_FINGERPRINT_ABI_V3 evidence.
-        self.query_image.validate_product_references(&self.module_world, &self.semantic_world)?;
+        let modules = crate::module_world_v5::ModuleWorldV5::from(self.module_world.clone());
+        self.query_image.validate_product_references(&modules, &self.semantic_world)?;
         self.query_image.validate_portable_structural_fingerprints_v4(&self.semantic_world)?;
 
         Ok(())

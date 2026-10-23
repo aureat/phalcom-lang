@@ -3,7 +3,8 @@
 use crate::codec::{BinaryReader, BinaryWriter};
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
-use crate::module_world::{Decode, ModuleWorldV1, ModuleWorldV2, Wire};
+use crate::module_world::{Decode, ModuleWorldV1, Wire};
+use crate::module_world_v5::ModuleWorldV5;
 use crate::semantic::aggregates::{DataInfoV1, EnumInfoV1, VariantInfoV1};
 use crate::semantic::world::{AssociatedSurfaceRecordV1, CallableDefinitionRecordV1, SemanticWorldV3, SemanticWorldV4, TypeMemberDeclarationRecordV1};
 use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
@@ -1467,7 +1468,7 @@ impl QueryImageV4 {
     }
 
     /// Validates typed query product references against the artifact sections.
-    pub fn validate_product_references(&self, modules: &ModuleWorldV2, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
+    pub fn validate_product_references(&self, modules: &ModuleWorldV5, world: &SemanticWorldV4) -> Result<(), ArtifactError> {
         for root in &self.supported_roots {
             if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
                 return Err(ValidationError::ReferentialIntegrity("query root product family is incompatible with its key kind".into()).into());
@@ -1508,7 +1509,7 @@ impl QueryImageV4 {
     }
 
     /// Validates typed query product references against legacy V3 semantic sections.
-    pub fn validate_product_references_v3(&self, modules: &ModuleWorldV2, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
+    pub fn validate_product_references_v3(&self, modules: &ModuleWorldV5, world: &SemanticWorldV3) -> Result<(), ArtifactError> {
         for root in &self.supported_roots {
             if !product_family_is_valid_for_query_kind(root.key.kind, root.product.family) {
                 return Err(ValidationError::ReferentialIntegrity("query root product family is incompatible with its key kind".into()).into());
