@@ -14,7 +14,7 @@ use phalcom_compiler_artifact::module_world::ModuleWorldV4;
 use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
-use phalcom_modules::{CanonicalExternalModuleWorld, ProjectUniverse, TrustedPackageResolver};
+use phalcom_modules::{CanonicalExternalModuleWorld, ExternalModuleAuthoritySet, ProjectUniverse, TrustedPackageResolver};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_semantic::artifact::import::{
     validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget,
@@ -41,6 +41,26 @@ pub(crate) struct StagedPackageSemanticGeneration {
     pub snapshot: Arc<SemanticSnapshot>,
     pub queries: Arc<CanonicalSemanticQueryImage>,
     pub fingerprints: CanonicalDependencyFingerprints,
+}
+
+/// Fully validated immutable package-artifact base prior to workspace
+/// publication. Construction is all-or-nothing: project receipts, module
+/// authority, type/static generations, semantic snapshots and every retained
+/// query image have all been checked against the final shared generation.
+pub(crate) struct ComposedPackageSemanticBase {
+    projects: Arc<ProjectUniverse>,
+    modules: Arc<ExternalModuleAuthoritySet>,
+    type_store: Arc<TypeStore>,
+    static_values: Arc<StaticValueStore>,
+    generations: Vec<StagedPackageSemanticGeneration>,
+}
+
+impl ComposedPackageSemanticBase {
+    pub(crate) fn projects(&self) -> &Arc<ProjectUniverse> { &self.projects }
+    pub(crate) fn modules(&self) -> &Arc<ExternalModuleAuthoritySet> { &self.modules }
+    pub(crate) fn type_store(&self) -> &Arc<TypeStore> { &self.type_store }
+    pub(crate) fn static_values(&self) -> &Arc<StaticValueStore> { &self.static_values }
+    pub(crate) fn generations(&self) -> &[StagedPackageSemanticGeneration] { &self.generations }
 }
 
 /// Validated portable compiler products, prior to native ID relocation.
@@ -98,6 +118,104 @@ impl StagedTeloscCompilerWire {
         let order = plan_package_dependencies(&nodes, limits, &mut plan_budget)?;
         allocations.commit_child(plan_budget).map_err(ArtifactError::Allocation)?;
         Ok(order)
+    }
+
+    /// Dependency-orders and atomically composes a closed set of package
+    /// artifacts into one immutable native semantic base.
+    ///
+    /// The caller receives no authority unless every artifact validates, every
+    /// resolver receipt extends the prior project graph, module ownership is
+    /// globally unique, and every query image remains readable against the
+    /// final shared type/static generations.
+    pub(crate) fn compose_package_semantic_base(
+        artifacts: Vec<Self>,
+        projects: &ProjectUniverse,
+        resolver: &dyn TrustedPackageResolver,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<ComposedPackageSemanticBase, TeloscStagingError> {
+        let mut composition_budget = allocations.child(allocations.remaining());
+        let order = Self::package_import_order(&artifacts, limits, &mut composition_budget)?;
+
+        let artifact_count = artifacts.len();
+        let mut pending = composition_budget
+            .vector::<Option<Self>>(artifact_count)
+            .map_err(ArtifactError::Allocation)?;
+        for artifact in artifacts {
+            pending.push(Some(artifact));
+        }
+
+        let mut project_candidate = projects.clone();
+        let mut receiving_types = TypeStore::new();
+        let mut receiving_static_values = StaticValueStore::new();
+        let mut generations = composition_budget
+            .vector::<StagedPackageSemanticGeneration>(artifact_count)
+            .map_err(ArtifactError::Allocation)?;
+        let mut worlds = composition_budget
+            .vector::<Arc<CanonicalExternalModuleWorld>>(artifact_count)
+            .map_err(ArtifactError::Allocation)?;
+
+        for index in order {
+            let artifact = pending
+                .get_mut(index)
+                .and_then(Option::take)
+                .ok_or_else(|| ArtifactError::from(ValidationError::ReferentialIntegrity(
+                    "package artifact dependency plan selected an invalid or repeated slot".into(),
+                )))?;
+            let generation = artifact.stage_package_semantic_generation_into_shared_stores(
+                &project_candidate,
+                resolver,
+                &mut receiving_types,
+                &mut receiving_static_values,
+                limits,
+                &mut composition_budget,
+            )?;
+            let next_projects = generation.modules.linked().universe.as_ref().clone();
+            if !next_projects.preserves_authority_of(&project_candidate) {
+                return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
+                    "package artifact import replaced previously validated project authority".into(),
+                )).into());
+            }
+            project_candidate = next_projects;
+            worlds.push(Arc::clone(&generation.modules));
+            generations.push(generation);
+        }
+
+        if pending.iter().any(Option::is_some) {
+            return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
+                "package artifact dependency plan did not consume every artifact".into(),
+            )).into());
+        }
+
+        let final_projects = composition_budget
+            .arc(project_candidate)
+            .map_err(ArtifactError::Allocation)?;
+        let module_set = ExternalModuleAuthoritySet::from_worlds(Arc::clone(&final_projects), worlds)
+            .map_err(|error| ArtifactError::from(ValidationError::ReferentialIntegrity(error)))?;
+        let modules = composition_budget.arc(module_set).map_err(ArtifactError::Allocation)?;
+        let type_store = composition_budget.arc(receiving_types).map_err(ArtifactError::Allocation)?;
+        let static_values = composition_budget.arc(receiving_static_values).map_err(ArtifactError::Allocation)?;
+
+        // Earlier package snapshots are strict prefixes of the final shared
+        // stores. Validate that every retained query image accepts those final
+        // stores before publishing the composed base.
+        for generation in &generations {
+            generation.queries.reader(
+                &generation.world,
+                type_store.as_ref(),
+                static_values.as_ref(),
+            )?;
+        }
+
+        let base = ComposedPackageSemanticBase {
+            projects: final_projects,
+            modules,
+            type_store,
+            static_values,
+            generations,
+        };
+        allocations.commit_child(composition_budget).map_err(ArtifactError::Allocation)?;
+        Ok(base)
     }
 
     /// Decode one compiler-capable artifact without granting it semantic,
