@@ -207,6 +207,32 @@ impl StagedTeloscCompilerWire {
             )?;
         }
 
+        // Query ownership is exact and singular just like module ownership.
+        // Images are BTreeMap-backed, so pairwise merge scans detect overlap
+        // without cloning keys or allocating another untracked ownership map.
+        for left_index in 0..generations.len() {
+            for right_index in (left_index + 1)..generations.len() {
+                let mut left = generations[left_index].queries.entries().peekable();
+                let mut right = generations[right_index].queries.entries().peekable();
+                loop {
+                    match (left.peek(), right.peek()) {
+                        (Some((left_key, _)), Some((right_key, _))) => {
+                            match left_key.cmp(right_key) {
+                                std::cmp::Ordering::Less => { left.next(); }
+                                std::cmp::Ordering::Greater => { right.next(); }
+                                std::cmp::Ordering::Equal => {
+                                    return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
+                                        "query key is owned by multiple package artifacts".into(),
+                                    )).into());
+                                }
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+            }
+        }
+
         let base = ComposedPackageSemanticBase {
             projects: final_projects,
             modules,
