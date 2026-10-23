@@ -53,6 +53,16 @@ pub(crate) fn bootstrap_vm(
     Ok(vm)
 }
 
+/// Installs one validated package executable generation into a VM whose
+/// module objects for that generation are already materialized (uninitialized)
+/// and whose earlier generations are already initialized.
+///
+/// Initializers are attached to every package module and the eager schedule
+/// runs in captured dependency order, exactly as for Universe.
+pub(crate) fn install_package_executable(vm: &mut VM, executable: &ValidatedExecutableImage) -> PhResult<()> {
+    ExecutableMaterializer::new(vm, executable).install()
+}
+
 struct ExecutableMaterializer<'a> {
     vm: &'a mut VM,
     image: &'a phalcom_compiler_artifact::executable::image::ExecutableImageV1,

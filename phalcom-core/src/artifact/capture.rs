@@ -106,6 +106,79 @@ pub fn capture_canonical_universe_executable(
     VM::build_canonical_executable_payload(canonical)
 }
 
+/// Program whose emitted bytecode an [`ExecutableImageCapture`] records.
+///
+/// Universe capture records the canonical program; package capture records
+/// exactly one package's owned modules from an ordinary compiled program
+/// whose dependencies are earlier artifact generations.
+pub(crate) trait CaptureSource {
+    /// Compiled program supplying linked reads for captured modules.
+    fn compiled(&self) -> &crate::modules::CompiledProgram;
+    /// Modules this image must own, in any order.
+    fn owned_modules(&self) -> Vec<phalcom_modules::ModuleId>;
+    /// Whether the module initializer runs during image installation.
+    fn is_eager(&self, id: &phalcom_modules::ModuleId) -> bool;
+    /// Source text used for the portable line map.
+    fn source_text(&self, id: &phalcom_modules::ModuleId) -> Option<std::sync::Arc<str>>;
+    /// Path-free logical URI recorded in the source map.
+    fn logical_uri(&self, id: &phalcom_modules::ModuleId) -> String;
+    /// Semantic snapshot that owns the captured executable semantics.
+    fn snapshot(&self) -> std::sync::Arc<phalcom_semantic::snapshot::SemanticSnapshot>;
+}
+
+impl CaptureSource for crate::modules::CanonicalUniverseProgram {
+    fn compiled(&self) -> &crate::modules::CompiledProgram {
+        self.program()
+    }
+    fn owned_modules(&self) -> Vec<phalcom_modules::ModuleId> {
+        self.program().modules.keys().cloned().collect()
+    }
+    fn is_eager(&self, id: &phalcom_modules::ModuleId) -> bool {
+        self.bootstrap_order().contains(id)
+    }
+    fn source_text(&self, id: &phalcom_modules::ModuleId) -> Option<std::sync::Arc<str>> {
+        self.source_index().unit(id).map(|unit| unit.text.clone())
+    }
+    fn logical_uri(&self, id: &phalcom_modules::ModuleId) -> String {
+        phalcom_modules::identity::universe_module_uri(id).unwrap_or_else(|| id.to_string())
+    }
+    fn snapshot(&self) -> std::sync::Arc<phalcom_semantic::snapshot::SemanticSnapshot> {
+        self.formal_image().snapshot().clone()
+    }
+}
+
+/// One package's owned modules inside an ordinary compiled program.
+pub(crate) struct PackageCaptureSource<'a> {
+    /// Program compiled over the package's prefix artifact authority.
+    pub(crate) program: &'a crate::modules::CompiledProgram,
+    /// Exact package-owned modules.
+    pub(crate) scope: BTreeSet<phalcom_modules::ModuleId>,
+    /// Package compilation snapshot.
+    pub(crate) snapshot: std::sync::Arc<phalcom_semantic::snapshot::SemanticSnapshot>,
+}
+
+impl CaptureSource for PackageCaptureSource<'_> {
+    fn compiled(&self) -> &crate::modules::CompiledProgram {
+        self.program
+    }
+    fn owned_modules(&self) -> Vec<phalcom_modules::ModuleId> {
+        self.scope.iter().cloned().collect()
+    }
+    fn is_eager(&self, id: &phalcom_modules::ModuleId) -> bool {
+        self.scope.contains(id)
+    }
+    fn source_text(&self, id: &phalcom_modules::ModuleId) -> Option<std::sync::Arc<str>> {
+        self.program.modules.get(id).and_then(|module| module.source_text.clone())
+    }
+    fn logical_uri(&self, id: &phalcom_modules::ModuleId) -> String {
+        let stable = to_stable_module(id);
+        format!("telos-package:{}", stable.path.join("."))
+    }
+    fn snapshot(&self) -> std::sync::Arc<phalcom_semantic::snapshot::SemanticSnapshot> {
+        self.snapshot.clone()
+    }
+}
+
 pub(crate) struct ExecutableImageCapture {
     image: ExecutableImageV1,
     semantic_snapshot: std::sync::Arc<phalcom_semantic::snapshot::SemanticSnapshot>,
@@ -123,14 +196,13 @@ pub(crate) struct ExecutableImageCapture {
 }
 
 impl ExecutableImageCapture {
-    pub(crate) fn new(canonical: &crate::modules::CanonicalUniverseProgram) -> Self {
+    pub(crate) fn new(canonical: &dyn CaptureSource) -> Self {
         let mut source_ids = BTreeMap::new();
         let mut source_maps = Vec::new();
         let mut source_units = canonical
-            .program()
-            .modules
-            .keys()
-            .filter_map(|id| canonical.source_index().unit(id).map(|unit| (id.clone(), unit)))
+            .owned_modules()
+            .into_iter()
+            .filter_map(|id| canonical.source_text(&id).map(|text| (id, text)))
             .collect::<Vec<_>>();
         source_units.sort_by_key(|(id, _)| to_stable_module(id));
 
@@ -138,9 +210,9 @@ impl ExecutableImageCapture {
             let map_id = SourceMapId(u32::try_from(source_maps.len()).expect("canonical module count fits u32"));
             source_ids.insert(id.clone(), map_id);
             let mut line_starts = vec![0];
-            line_starts.extend(unit.text.match_indices('\n').map(|(index, _)| (index + 1) as u64));
+            line_starts.extend(unit.match_indices('\n').map(|(index, _)| (index + 1) as u64));
             source_maps.push(PortableSourceMapV1 {
-                logical_uri: phalcom_modules::identity::universe_module_uri(&id).unwrap_or_else(|| id.to_string()),
+                logical_uri: canonical.logical_uri(&id),
                 module: to_stable_module(&id),
                 line_starts,
                 source_span: None,
@@ -168,7 +240,7 @@ impl ExecutableImageCapture {
 
         Self {
             image,
-            semantic_snapshot: canonical.formal_image().snapshot().clone(),
+            semantic_snapshot: canonical.snapshot(),
             source_ids,
             prototype_by_closure: HashMap::new(),
             constant_by_object: HashMap::new(),
@@ -252,7 +324,7 @@ impl ExecutableImageCapture {
     pub(crate) fn capture_module(
         &mut self,
         vm: &mut VM,
-        canonical: &crate::modules::CanonicalUniverseProgram,
+        canonical: &dyn CaptureSource,
         id: &phalcom_modules::ModuleId,
         closure: ObjRef,
     ) {
@@ -531,7 +603,7 @@ impl ExecutableImageCapture {
     fn capture_module_inner(
         &mut self,
         vm: &mut VM,
-        canonical: &crate::modules::CanonicalUniverseProgram,
+        canonical: &dyn CaptureSource,
         id: &phalcom_modules::ModuleId,
         closure: ObjRef,
     ) -> Result<(), ExecutableCaptureError> {
@@ -547,11 +619,11 @@ impl ExecutableImageCapture {
         let owner = PrototypeOwnerV1::ModuleInitializer { module: stable_module.clone() };
         let initializer = self.capture_closure(vm, closure, owner)?;
         let compiled = canonical
-            .program()
+            .compiled()
             .modules
             .get(id)
             .ok_or_else(|| ExecutableCaptureError::MissingInitializer { module: stable_module.clone() })?;
-        let eager = canonical.bootstrap_order().contains(id);
+        let eager = canonical.is_eager(id);
         let linked_reads = compiled
             .linked_reads
             .iter()
@@ -1062,7 +1134,7 @@ impl ExecutableImageCapture {
         }
     }
 
-    pub(crate) fn finish(&mut self, vm: &mut VM, canonical: &crate::modules::CanonicalUniverseProgram) -> Result<ExecutableImageV1, ExecutableCaptureError> {
+    pub(crate) fn finish(&mut self, vm: &mut VM, canonical: &dyn CaptureSource) -> Result<ExecutableImageV1, ExecutableCaptureError> {
         if let Some(error) = self.failure.take() {
             self.release_roots(vm);
             return Err(error);
@@ -1074,9 +1146,8 @@ impl ExecutableImageCapture {
         }
 
         let mut missing = canonical
-            .program()
-            .modules
-            .keys()
+            .owned_modules()
+            .iter()
             .map(to_stable_module)
             .filter(|module| !self.captured_modules.contains(module))
             .collect::<Vec<_>>();

@@ -312,6 +312,39 @@ impl ProjectUniverse {
         self.register_package_authority_receipt(stable_project, receipt, expected_artifact_digest)
     }
 
+    /// Registers a persistent package project that exists only as an artifact.
+    ///
+    /// No manifest or source tree is read: the project's source identity is
+    /// the logical `logical_uri`, it has no source root, and its only import
+    /// roots are Universe and its own namespace. Package authority is still
+    /// granted only by a trusted-resolver receipt bound to this project id.
+    /// Re-registering the same logical identity returns the existing id.
+    pub fn register_artifact_package(&mut self, name: &str, namespace: ModuleComponent, logical_uri: &str) -> ResolvedProjectId {
+        let source_identity = ProjectSourceIdentity::from_path(logical_uri);
+        if let Some(&id) = self.roots.get(&source_identity) {
+            return id;
+        }
+        let id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
+        let mut import_roots = BTreeMap::new();
+        import_roots.insert(ModuleComponent::from_identifier("universe").expect("valid identifier"), (ImportRootTarget::Universe, false));
+        import_roots.insert(namespace.clone(), (ImportRootTarget::Resolved(id), true));
+        self.projects.push(ResolvedProject {
+            id,
+            name: name.to_owned(),
+            namespace,
+            root_dir: PathBuf::new(),
+            source_root: PathBuf::new(),
+            entry: None,
+            dependencies: BTreeMap::new(),
+            import_roots,
+            source_identity: source_identity.clone(),
+            persistent_project: true,
+            manifest: None,
+        });
+        self.roots.insert(source_identity, id);
+        id
+    }
+
     /// Allocates a fresh synthetic execution identity for inline/standalone code.
     pub fn allocate_synthetic_id(&mut self) -> SyntheticProjectId {
         self.synthetic_ids.allocate()

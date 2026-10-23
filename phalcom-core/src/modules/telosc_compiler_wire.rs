@@ -197,6 +197,39 @@ impl StagedTeloscCompilerWire {
         )
     }
 
+    /// Like [`Self::compose_artifact_semantic_base`], over a caller catalog
+    /// that extends the Universe catalog with artifact package projects.
+    pub(crate) fn compose_artifact_semantic_base_over_projects(
+        artifacts: Vec<Self>,
+        universe: Arc<CanonicalUniverseFormalImage>,
+        projects: &ProjectUniverse,
+        resolver: &dyn TrustedPackageResolver,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<ComposedArtifactSemanticBase, TeloscStagingError> {
+        if !universe.capabilities().portable_artifact_available || !universe.sources().is_empty() {
+            return Err(TeloscStagingError::Capability(
+                "composed artifact base requires source-free loaded Universe artifact authority",
+            ));
+        }
+        Self::compose_artifact_semantic_base_impl(artifacts, projects, Some(universe), resolver, limits, allocations)
+    }
+
+    /// Exact package identity claimed by this artifact header.
+    pub(crate) fn package_identity(&self) -> &TeloscPackageIdentity {
+        &self.header.package_identity
+    }
+
+    /// Container digest bound by trusted package receipts.
+    pub(crate) fn artifact_digest(&self) -> phalcom_compiler_artifact::digest::ArtifactDigest {
+        self.header.artifact_digest
+    }
+
+    /// Portable module authority of this artifact.
+    pub(crate) fn module_world(&self) -> &ModuleWorldV5 {
+        &self.module_world
+    }
+
     #[cfg(test)]
     fn compose_package_semantic_base_without_universe_for_test(
         artifacts: Vec<Self>,
@@ -257,9 +290,9 @@ impl StagedTeloscCompilerWire {
             .map_err(ArtifactError::Allocation)?;
 
         if let Some(universe) = universe {
-            if !project_candidate.preserves_authority_of(universe.modules().projects())
-                || !universe.modules().projects().preserves_authority_of(&project_candidate)
-            {
+            // The caller's catalog may extend Universe's (artifact package
+            // projects registered for receipts) but must not rewrite it.
+            if !project_candidate.preserves_authority_of(universe.modules().projects()) {
                 return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
                     "loaded Universe artifact project authority does not match composition base".into(),
                 )).into());
@@ -588,12 +621,9 @@ impl StagedTeloscCompilerWire {
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
     ) -> Result<StagedArtifactSemanticGeneration, TeloscStagingError> {
-        use phalcom_compiler_artifact::header::TeloscCapabilities;
-        if self.header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) {
-            return Err(TeloscStagingError::Capability(
-                "ordinary package executable authority is not supported by compiler-only staging",
-            ));
-        }
+        // A PORTABLE_EXECUTABLE package's EXECUTABLE section is not compiler
+        // authority: this staging never reads it. It is validated and installed
+        // separately against the composed base (`package_executable`).
 
         let mut generation_budget = allocations.child(allocations.remaining());
         let mut type_candidate = receiving_types.clone();

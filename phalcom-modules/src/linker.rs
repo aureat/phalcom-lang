@@ -448,6 +448,28 @@ impl ExecutableLinkedProgram {
     /// Validates a legacy conservative link product before wrapping it in the
     /// executable stage. Unlike phase-aware finalization, this path retains all
     /// existing reads and runtime edges.
+    /// Wraps one loaded artifact generation's already-validated linkage.
+    ///
+    /// Unlike [`Self::from_conservative_link`], runtime edges may target
+    /// modules of earlier artifact generations, and the module map stays the
+    /// immutable loaded authority. Read slots keep their validated layout.
+    pub fn from_artifact_generation(program: LinkedProgram) -> Self {
+        let mut canonical_runtime_reads = BTreeMap::new();
+        for (module_id, module) in &program.modules {
+            for (slot, read) in module.linked_reads.iter().enumerate() {
+                canonical_runtime_reads
+                    .entry((module_id.clone(), read.clone()))
+                    .or_insert(ImportBindingId(slot as u32));
+            }
+        }
+        Self {
+            program,
+            canonical_runtime_reads,
+            runtime_requirements: Vec::new(),
+            runtime_availability_witnesses: Vec::new(),
+        }
+    }
+
     pub fn from_conservative_link(mut program: LinkedProgram) -> Result<Self, LinkError> {
         let known_modules = program.modules.keys().cloned().collect::<BTreeSet<_>>();
         for module in program.graphs.runtime.nodes() {

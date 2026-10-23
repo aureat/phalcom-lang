@@ -3750,7 +3750,7 @@ fn validate_standalone_image_imports(program: &phalcom_ast::ast::Program) -> Res
     Ok(())
 }
 
-fn compile_module(
+pub(crate) fn compile_module(
     id: ModuleId,
     module: &LinkedModule,
     source: Option<SourceLocation>,

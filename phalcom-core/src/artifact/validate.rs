@@ -49,6 +49,8 @@ pub(crate) enum ExecutableValidationError {
     Structural(#[from] ArtifactError),
     #[error("unsupported Universe executable profile {0:?}; expected Debug")]
     UnsupportedProfile(CompilationProfileV1),
+    #[error("package executable authority violation: {0}")]
+    PackageAuthority(String),
     #[error("loaded P7 authority contains duplicate stable module identity {0:?}")]
     DuplicateP7Module(StableModuleRef),
     #[error("executable is missing P7 module {0:?}")]
@@ -411,6 +413,36 @@ impl<'a> ExecutableValidationContext<'a> {
 
 /// Authorizes a decoded executable only after all core-owned compatibility,
 /// control-flow, runtime-object, and P2 semantic-reference checks pass.
+/// Validates a package generation's executable image.
+///
+/// Enforces the structural, ABI and profile contract and the package trust
+/// boundary: the image owns exactly `scope`, claims no native anchors or
+/// primordial roles (those belong to Universe), and every eager module is
+/// package-owned. Cross-artifact owner resolution is checked at installation,
+/// where every stable owner must resolve through admitted authority.
+pub(crate) fn validate_package_executable_image(
+    image: Arc<ExecutableImageV1>,
+    scope: &std::collections::BTreeSet<phalcom_type_meta::identity::StableModuleRef>,
+    limits: &ExecutableImageLimitsV1,
+) -> Result<ValidatedExecutableImage, ExecutableValidationError> {
+    image.validate_structure(limits)?;
+    image.validate_native_abi_digest()?;
+    if image.compatibility.compilation_profile != CompilationProfileV1::Debug {
+        return Err(ExecutableValidationError::UnsupportedProfile(image.compatibility.compilation_profile.clone()));
+    }
+    let owned = image.modules.iter().map(|module| module.identity.clone()).collect::<std::collections::BTreeSet<_>>();
+    if &owned != scope || owned.len() != image.modules.len() {
+        return Err(ExecutableValidationError::PackageAuthority("package executable module coverage differs from its compiler scope".into()));
+    }
+    if !image.native_anchors.is_empty() || !image.primordial_roles.is_empty() {
+        return Err(ExecutableValidationError::PackageAuthority("package executable claims Universe native or primordial authority".into()));
+    }
+    if image.bootstrap.eager_modules.iter().any(|entry| !scope.contains(&entry.module)) {
+        return Err(ExecutableValidationError::PackageAuthority("package executable schedules a foreign module".into()));
+    }
+    Ok(ValidatedExecutableImage { image })
+}
+
 pub(crate) fn validate_executable_image(
     image: Arc<ExecutableImageV1>,
     linked_program: &phalcom_modules::LinkedProgram,

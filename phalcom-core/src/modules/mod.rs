@@ -13,6 +13,7 @@ mod telosc_dependency_plan;
 mod package_identity;
 pub mod package_image;
 pub mod package_artifact;
+pub mod package_executable;
 pub mod canonical_universe;
 pub mod compile;
 pub mod compile_session;
@@ -38,6 +39,7 @@ pub use compile::{
 pub use compile_session::ProgramCompilationSession;
 pub use package_image::{PackageCompilerImage, PackageCompilerImageError};
 pub use package_artifact::{BuiltPackageTelosc, build_package_telosc};
+pub use package_executable::{LoadedPackageArtifact, build_full_package_telosc, load_package_telosc, load_package_telosc_from_bytes, write_full_package_telosc};
 pub use context::ModuleExecutionContext;
 pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, RuntimeStaticConstantRef, TopLevelBindingInfo, TopLevelBindingKind};
 pub use reflection_cache::ReflectionCache;
