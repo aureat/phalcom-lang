@@ -26,7 +26,7 @@ class SHA1 {
 
   @class
   private schedule(_ padded: Bytes, _ offset: Int) -> List<Int> {
-    let words: List<Int> = []
+    let words = List<Int>.new()
     let mut t = 0
     while t < 16 {
       let start = offset + t * 4
@@ -62,13 +62,13 @@ class SHA1 {
       a = temp
       t = t + 1
     }
-    [
-      (h.at(0) + a) & 0xffffffff,
-      (h.at(1) + b) & 0xffffffff,
-      (h.at(2) + c) & 0xffffffff,
-      (h.at(3) + d) & 0xffffffff,
-      (h.at(4) + e) & 0xffffffff
-    ]
+    let result = List<Int>.new()
+    result.append((h.at(0) + a) & 0xffffffff)
+    result.append((h.at(1) + b) & 0xffffffff)
+    result.append((h.at(2) + c) & 0xffffffff)
+    result.append((h.at(3) + d) & 0xffffffff)
+    result.append((h.at(4) + e) & 0xffffffff)
+    result
   }
 
   @class
@@ -98,7 +98,12 @@ class SHA1 {
       i = i + 1
     }
 
-    let mut h = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0]
+    let mut h = List<Int>.new()
+    h.append(0x67452301)
+    h.append(0xefcdab89)
+    h.append(0x98badcfe)
+    h.append(0x10325476)
+    h.append(0xc3d2e1f0)
     let mut offset = 0
     while offset < paddedLength {
       h = SHA1.compress(padded, offset, h)
