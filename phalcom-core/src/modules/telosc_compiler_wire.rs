@@ -26,6 +26,7 @@ use phalcom_semantic::canonical_image::{
     CanonicalDependencyFingerprints, CanonicalSemanticQueryImage, CanonicalSemanticWorldId,
     ExternalSemanticQueryCatalogue, ExternalSemanticQueryGeneration,
 };
+use phalcom_semantic::{ExternalSemanticSessionSeed, SemanticWorkspaceSession};
 use phalcom_semantic::snapshot::SemanticSnapshot;
 use phalcom_semantic::static_value::StaticValueStore;
 use phalcom_semantic::types::store::TypeStore;
@@ -75,6 +76,22 @@ impl ComposedPackageSemanticBase {
     }
 
     pub(crate) fn generations(&self) -> &[StagedPackageSemanticGeneration] { &self.generations }
+
+    /// Creates a mutable workspace whose immutable compiler authority is this
+    /// entire composed package base. Artifact snapshots retain independent
+    /// query provenance; the semantic seed is an exact owner-composed view.
+    pub(crate) fn semantic_session(
+        &self,
+        workspace: phalcom_semantic::identity::WorkspaceId,
+    ) -> Result<SemanticWorkspaceSession, phalcom_semantic::canonical_image::CanonicalImageError> {
+        let seed = ExternalSemanticSessionSeed::from_validated_authorities(
+            Arc::clone(&self.modules),
+            Arc::clone(&self.query_catalogue),
+            Arc::clone(&self.type_store),
+            Arc::clone(&self.static_values),
+        )?;
+        Ok(SemanticWorkspaceSession::from_external_artifact_base(workspace, Arc::new(seed)))
+    }
 
     /// Exact semantic generation owning one externally provided module.
     pub(crate) fn generation_for_module(&self, module: &ModuleId) -> Option<&StagedPackageSemanticGeneration> {
@@ -634,5 +651,11 @@ mod staging_transaction_tests {
         assert!(db.canonical_image().is_none());
         assert!(db.immutable_query_authority().is_some());
         assert_eq!(base.query_catalogue().generations().len(), 0);
+
+        let session = base
+            .semantic_session(phalcom_semantic::identity::WorkspaceId::from_raw(78))
+            .expect("empty composed artifact base seeds a workspace");
+        assert!(session.last_snapshot().is_none(), "external authority is not a local workspace publication");
+        assert!(session.module_session().universe().preserves_authority_of(base.projects()));
     }
 }
