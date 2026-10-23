@@ -1019,8 +1019,47 @@ fn fresh_process_target_runner() {
         .compile_user_entry(EntrySelection::Project(std::path::PathBuf::from(&slotmap_path)))
         .expect("compile slotmap project in fresh process against loaded artifact must succeed");
     assert_eq!(compiled_slotmap.modules.len(), 4, "slotmap project modules count must be 4");
+    let expected_slotmap_modules = compiled_slotmap.modules.keys().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(
+        phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
+        0,
+        "package capture must begin without canonical source bootstrap"
+    );
+    let package_image = phalcom_core::modules::PackageCompilerImage::capture_from_universe(
+        &slotmap_path,
+        &loaded,
+        &limits,
+    )
+    .expect("capture SlotMap package image in fresh process against loaded artifact");
+    let package_owned_modules = package_image.scope.owned_modules().expect("package capture has an explicit owner scope");
+    assert_eq!(package_owned_modules, &expected_slotmap_modules, "package scope must contain every SlotMap module");
+    assert_eq!(
+        package_image.modules.interfaces().keys().cloned().collect::<BTreeSet<_>>(),
+        expected_slotmap_modules,
+        "package interface set must exactly match SlotMap ownership"
+    );
+    assert_eq!(
+        package_image.modules.topology().nodes.keys().cloned().collect::<BTreeSet<_>>(),
+        expected_slotmap_modules,
+        "package topology set must exactly match SlotMap ownership"
+    );
+    assert_eq!(
+        package_image.modules.linked().modules.keys().cloned().collect::<BTreeSet<_>>(),
+        expected_slotmap_modules,
+        "package linked authority set must exactly match SlotMap ownership"
+    );
+    assert_eq!(
+        package_image.linked.as_program().modules.keys().cloned().collect::<BTreeSet<_>>(),
+        expected_slotmap_modules,
+        "package executable linked set must exactly match SlotMap ownership"
+    );
+    assert_eq!(
+        phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(),
+        0,
+        "package capture must not trigger canonical source bootstrap"
+    );
     eprintln!(
-        "source-denied loaded-image proof: three local revisions; SlotMap modules={}",
+        "source-denied loaded-image proof: three local revisions; SlotMap package image modules={}",
         compiled_slotmap.modules.len()
     );
     let compiled_runtime = loaded

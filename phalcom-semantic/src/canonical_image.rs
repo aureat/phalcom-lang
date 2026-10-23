@@ -5,6 +5,7 @@
 //! calls the core compiler and never installs its snapshot in a local session.
 
 use crate::canonical_baseline::{CanonicalUniverseSemanticBaseline, canonical_universe_semantic_baseline};
+use crate::artifact::projection::ArtifactProjectionScope;
 use crate::db::{DependencyEdge, InputFingerprint, ProductFingerprint, QueryKey, QueryKind, QueryState, SemanticDb, SemanticProduct};
 use crate::declarations::TypeDeclarationShell;
 use crate::identity::{DeclarationId, WorkspaceId};
@@ -843,6 +844,34 @@ impl CanonicalSemanticQueryImage {
         snapshot: &Arc<SemanticSnapshot>,
         modules: &CanonicalExternalModuleWorld,
     ) -> Result<Self, CanonicalImageError> {
+        Self::freeze_with_scope(db, world, snapshot, modules, &ArtifactProjectionScope::whole_image(), None)
+    }
+
+    /// Freezes only ready, eligible queries owned by `scope`.
+    ///
+    /// Every dependency outside the scope is resolved against the immutable
+    /// external artifact catalogue. The catalogue is the sole authority for
+    /// external fingerprints; missing or conflicting evidence fails closed.
+    pub fn freeze_scoped(
+        db: &SemanticDb,
+        world: CanonicalSemanticWorldId,
+        snapshot: &Arc<SemanticSnapshot>,
+        modules: &CanonicalExternalModuleWorld,
+        scope: &ArtifactProjectionScope,
+        external: &ExternalSemanticQueryCatalogue,
+    ) -> Result<Self, CanonicalImageError> {
+        let external_fingerprint = |key: &QueryKey| external.dependency_fingerprint(key);
+        Self::freeze_with_scope(db, world, snapshot, modules, scope, Some(&external_fingerprint))
+    }
+
+    fn freeze_with_scope(
+        db: &SemanticDb,
+        world: CanonicalSemanticWorldId,
+        snapshot: &Arc<SemanticSnapshot>,
+        modules: &CanonicalExternalModuleWorld,
+        scope: &ArtifactProjectionScope,
+        external_fingerprint: Option<&dyn Fn(&QueryKey) -> Option<ProductFingerprint>>,
+    ) -> Result<Self, CanonicalImageError> {
         if db.has_open_transaction() {
             return Err(CanonicalImageError::OpenTransaction);
         }
@@ -851,6 +880,9 @@ impl CanonicalSemanticQueryImage {
         let mut entries = BTreeMap::new();
         for key in db.query_keys() {
             census.total_rows_examined += 1;
+            if !scope.owns_query(key) {
+                continue;
+            }
             let state = db.query_state(key).expect("query key enumerates a state");
             match state {
                 QueryState::Failed { failure, .. } => {
@@ -939,16 +971,38 @@ impl CanonicalSemanticQueryImage {
                 },
             );
         }
-        // Reject the transitive closure of non-retained or stale observations.
+        // External edges are immutable dependencies, not local rows to prune.
+        // Resolve them before local transitive rejection so missing evidence
+        // cannot silently turn an owned product into an incomplete root.
+        for (key, entry) in &entries {
+            for edge in entry.dependencies.iter() {
+                if !scope.owns_query(&edge.dependency) {
+                    let Some(fingerprint) = external_fingerprint.and_then(|lookup| lookup(&edge.dependency)) else {
+                        return Err(CanonicalImageError::IncompletePublication(format!(
+                            "unresolved external query dependency {:?} -> {:?}",
+                            key, edge.dependency
+                        )));
+                    };
+                    if fingerprint != edge.observed_fingerprint {
+                        return Err(CanonicalImageError::IncompletePublication(format!(
+                            "external query dependency fingerprint mismatch {:?} -> {:?}",
+                            key, edge.dependency
+                        )));
+                    }
+                }
+            }
+        }
+        // Reject the transitive closure of non-retained or stale local observations.
         loop {
             let rejected = entries
                 .iter()
                 .filter(|(key, entry)| {
                     entry.dependencies.iter().any(|edge| {
                         edge.dependent != **key
-                            || !entries
-                                .get(&edge.dependency)
-                                .is_some_and(|dependency| dependency.product_fingerprint == edge.observed_fingerprint)
+                            || (scope.owns_query(&edge.dependency)
+                                && !entries
+                                    .get(&edge.dependency)
+                                    .is_some_and(|dependency| dependency.product_fingerprint == edge.observed_fingerprint))
                     })
                 })
                 .map(|(key, _)| key.clone())
@@ -1797,31 +1851,54 @@ fn aggregate_dependency_fingerprints(
     snapshot: &SemanticSnapshot,
     queries: &CanonicalSemanticQueryImage,
 ) -> Result<CanonicalDependencyFingerprints, CanonicalImageError> {
+    aggregate_dependency_fingerprints_with_scope(db, snapshot, queries, &ArtifactProjectionScope::whole_image(), None)
+}
+
+/// Builds dependency fingerprint evidence for the semantic rows owned by
+/// `scope`, resolving external query dependencies through the immutable base.
+pub fn aggregate_dependency_fingerprints_scoped(
+    db: &SemanticDb,
+    snapshot: &SemanticSnapshot,
+    queries: &CanonicalSemanticQueryImage,
+    scope: &ArtifactProjectionScope,
+    external: &ExternalSemanticQueryCatalogue,
+) -> Result<CanonicalDependencyFingerprints, CanonicalImageError> {
+    let external_fingerprint = |key: &QueryKey| external.dependency_fingerprint(key);
+    aggregate_dependency_fingerprints_with_scope(db, snapshot, queries, scope, Some(&external_fingerprint))
+}
+
+fn aggregate_dependency_fingerprints_with_scope(
+    db: &SemanticDb,
+    snapshot: &SemanticSnapshot,
+    queries: &CanonicalSemanticQueryImage,
+    scope: &ArtifactProjectionScope,
+    external_fingerprint: Option<&dyn Fn(&QueryKey) -> Option<ProductFingerprint>>,
+) -> Result<CanonicalDependencyFingerprints, CanonicalImageError> {
     use crate::db::fingerprint;
     let mut fingerprints = BTreeMap::new();
     for (id, signature) in snapshot.callable_signatures.iter() {
-        fingerprints.insert(
-            QueryKey::CallableSignature(id.clone()),
-            fingerprint::callable_signature_product_fingerprint(signature),
-        );
+        let key = QueryKey::CallableSignature(id.clone());
+        if scope.owns_query(&key) {
+            fingerprints.insert(key, fingerprint::callable_signature_product_fingerprint(signature));
+        }
     }
     for (id, signature) in snapshot.field_signatures.iter() {
-        fingerprints.insert(
-            QueryKey::FieldSignature(id.clone()),
-            fingerprint::field_signature_product_fingerprint(signature),
-        );
+        let key = QueryKey::FieldSignature(id.clone());
+        if scope.owns_query(&key) {
+            fingerprints.insert(key, fingerprint::field_signature_product_fingerprint(signature));
+        }
     }
     for (id, surface) in snapshot.dispatch.surfaces().iter() {
-        fingerprints.insert(
-            QueryKey::DeclarationSurface(id.clone()),
-            fingerprint::declaration_surface_product_fingerprint(surface),
-        );
+        let key = QueryKey::DeclarationSurface(id.clone());
+        if scope.owns_query(&key) {
+            fingerprints.insert(key, fingerprint::declaration_surface_product_fingerprint(surface));
+        }
     }
     for (id, product) in snapshot.type_member_declarations.iter() {
-        fingerprints.insert(
-            QueryKey::TypeMemberDeclaration(id.clone()),
-            fingerprint::type_member_declaration_product_fingerprint(product),
-        );
+        let key = QueryKey::TypeMemberDeclaration(id.clone());
+        if scope.owns_query(&key) {
+            fingerprints.insert(key, fingerprint::type_member_declaration_product_fingerprint(product));
+        }
     }
     // Hierarchy fingerprints include source syntax (including generic arguments).
     // Preserve the completed owner's fingerprint, and require agreement with the
@@ -1838,7 +1915,7 @@ fn aggregate_dependency_fingerprints(
         else {
             continue;
         };
-        if *validated_revision != db.revision() || !snapshot.declarations.contains(id) {
+        if *validated_revision != db.revision() || !snapshot.declarations.contains(id) || !scope.owns_query(key) {
             continue;
         }
         let Some(product) = db.product(key).and_then(|product| product.as_hierarchy_edge()) else {
@@ -1856,6 +1933,26 @@ fn aggregate_dependency_fingerprints(
             return Err(CanonicalImageError::IncompletePublication(format!(
                 "frozen query disagrees with final aggregate: {key:?}"
             )));
+        }
+    }
+    for (key, entry) in queries.entries() {
+        for edge in entry.dependencies.iter() {
+            if scope.owns_query(&edge.dependency) {
+                continue;
+            }
+            let Some(fingerprint) = external_fingerprint.and_then(|lookup| lookup(&edge.dependency)) else {
+                return Err(CanonicalImageError::IncompletePublication(format!(
+                    "unresolved external query dependency {:?} -> {:?}",
+                    key, edge.dependency
+                )));
+            };
+            if fingerprint != edge.observed_fingerprint {
+                return Err(CanonicalImageError::IncompletePublication(format!(
+                    "external query dependency fingerprint mismatch {:?} -> {:?}",
+                    key, edge.dependency
+                )));
+            }
+            fingerprints.insert(edge.dependency.clone(), fingerprint);
         }
     }
     Ok(CanonicalDependencyFingerprints::Source(fingerprints))
@@ -1920,6 +2017,109 @@ mod tests {
     }
     fn freeze(db: &SemanticDb, image: &CanonicalUniverseFormalImage) -> CanonicalSemanticQueryImage {
         CanonicalSemanticQueryImage::freeze(db, image.world.clone(), image.snapshot(), image.modules()).unwrap()
+    }
+
+    #[test]
+    fn scoped_freeze_keeps_owned_rows_with_immutable_external_dependencies() {
+        let image = canonical_universe_formal_image().unwrap();
+        let signatures = image.snapshot().callable_signatures.iter().collect::<Vec<_>>();
+        let (owned_callable, owned_signature) = signatures[0];
+        let (external_callable, external_signature) = signatures
+            .iter()
+            .copied()
+            .find(|(callable, _)| callable.module() != owned_callable.module())
+            .expect("Universe contains callable signatures in distinct modules");
+        let owned_key = QueryKey::CallableSignature(owned_callable.clone());
+        let external_key = QueryKey::CallableSignature(external_callable.clone());
+        let owned_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(owned_signature);
+        let external_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(external_signature);
+
+        let mut db = SemanticDb::new();
+        let revision = db.revision();
+        db.publish_product_ready(
+            owned_key.clone(),
+            revision,
+            InputFingerprint(1),
+            owned_fingerprint,
+            SemanticProduct::CallableSignature(Arc::new(crate::db::product::CallableSignatureProduct::new(
+                Arc::new(owned_signature.clone()),
+                Arc::from([]),
+            ))),
+            [DependencyEdge {
+                dependent: owned_key.clone(),
+                dependency: external_key.clone(),
+                observed_fingerprint: external_fingerprint,
+            }],
+        )
+        .unwrap();
+        db.publish_product_ready(
+            external_key.clone(),
+            revision,
+            InputFingerprint(2),
+            external_fingerprint,
+            SemanticProduct::CallableSignature(Arc::new(crate::db::product::CallableSignatureProduct::new(
+                Arc::new(external_signature.clone()),
+                Arc::from([]),
+            ))),
+            [],
+        )
+        .unwrap();
+
+        let scope = ArtifactProjectionScope::new([owned_callable.module().clone()]);
+        let external_lookup = |key: &QueryKey| (key == &external_key).then_some(external_fingerprint);
+        let frozen = CanonicalSemanticQueryImage::freeze_with_scope(
+            &db,
+            image.world.clone(),
+            image.snapshot(),
+            image.modules(),
+            &scope,
+            Some(&external_lookup),
+        )
+        .unwrap();
+        assert_eq!(frozen.len(), 1);
+        assert!(frozen.entry(&owned_key).is_some());
+        assert!(frozen.entry(&external_key).is_none());
+
+        let fingerprints = aggregate_dependency_fingerprints_with_scope(
+            &db,
+            image.snapshot(),
+            &frozen,
+            &scope,
+            Some(&external_lookup),
+        )
+        .unwrap();
+        assert_eq!(fingerprints.get(&owned_key), Some(&owned_fingerprint));
+        assert_eq!(fingerprints.get(&external_key), Some(&external_fingerprint));
+        assert!(fingerprints.keys().all(|key| scope.owns_query(key) || key == &external_key));
+
+        let missing = |_key: &QueryKey| None;
+        let missing = CanonicalSemanticQueryImage::freeze_with_scope(
+            &db,
+            image.world.clone(),
+            image.snapshot(),
+            image.modules(),
+            &scope,
+            Some(&missing),
+        )
+        .unwrap_err();
+        assert!(missing.to_string().contains("unresolved external query dependency"));
+
+        let wrong = if external_fingerprint == ProductFingerprint::new(0) {
+            ProductFingerprint::new(1)
+        } else {
+            ProductFingerprint::new(0)
+        };
+        let mismatched = |_key: &QueryKey| Some(wrong);
+        let mismatched = CanonicalSemanticQueryImage::freeze_with_scope(
+            &db,
+            image.world.clone(),
+            image.snapshot(),
+            image.modules(),
+            &scope,
+            Some(&mismatched),
+        )
+        .unwrap_err();
+        assert!(mismatched.to_string().contains("external query dependency fingerprint mismatch"));
     }
 
     fn loaded_publication_inputs() -> (

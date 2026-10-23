@@ -83,7 +83,15 @@ including external evidence.
 **PB-I5. Metadata scope.** The metadata bundle contains entries for owned
 modules only. References to external declarations inside owned entries are
 permitted only through projects in `external_projects` (this is the existing
-payload rule that checks `module_world.external_projects`).
+payload rule that checks `module_world.external_projects`). Package projection
+filters primary records and runtime-root owners by `ArtifactProjectionScope`
+before assigning metadata pool IDs. Referenced external type forms may remain
+in an owned record. The package path supplies the path-free source fingerprint
+derived from `source_digest`; it must not derive that fingerprint by walking
+registered project filesystem identities. Universe metadata keeps its existing
+whole-image projection. See
+[`incident-metadata-package-projection.md`](incident-metadata-package-projection.md)
+for the accepted Q6 clarification (ARCH-I7).
 
 ## 3. Package module-world projection (part of E/F3, `phalcom-modules`)
 

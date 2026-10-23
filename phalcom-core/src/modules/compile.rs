@@ -1278,6 +1278,42 @@ fn link_analyze_finalize(
     settings: SemanticAnalysisSettings<'_>,
     availability: Option<&phalcom_modules::AvailabilityContract>,
 ) -> Result<(Arc<ExecutableLinkedProgram>, Arc<phalcom_semantic::SemanticSnapshot>), ProgramCompileError> {
+    link_analyze_finalize_in_session(linker, entry, resolved, sources, runtime_modules, settings, availability)
+}
+
+pub(super) fn link_analyze_finalize_for_package_image(
+    linker: &ModuleLinker,
+    entry: ModuleId,
+    resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+    sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    runtime_modules: &BTreeSet<ModuleId>,
+    semantic_session: &mut phalcom_semantic::SemanticWorkspaceSession,
+    availability: &phalcom_modules::AvailabilityContract,
+) -> Result<(Arc<ExecutableLinkedProgram>, Arc<phalcom_semantic::SemanticSnapshot>), ProgramCompileError> {
+    link_analyze_finalize_in_session(
+        linker,
+        entry,
+        resolved,
+        sources,
+        runtime_modules,
+        SemanticAnalysisSettings {
+            generation: 0,
+            compile_mode: CompileMode::Debug,
+            session: Some(semantic_session),
+        },
+        Some(availability),
+    )
+}
+
+fn link_analyze_finalize_in_session(
+    linker: &ModuleLinker,
+    entry: ModuleId,
+    resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+    sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    runtime_modules: &BTreeSet<ModuleId>,
+    settings: SemanticAnalysisSettings<'_>,
+    availability: Option<&phalcom_modules::AvailabilityContract>,
+) -> Result<(Arc<ExecutableLinkedProgram>, Arc<phalcom_semantic::SemanticSnapshot>), ProgramCompileError> {
     let SemanticAnalysisSettings {
         generation,
         compile_mode,
@@ -2454,6 +2490,28 @@ impl ProgramCompiler {
     }
 
     fn project_analyzed(analyzed: &AnalyzedProgram, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
+        Self::project_analyzed_with_projection(analyzed, options, None)
+    }
+
+    pub(super) fn project_analyzed_for_package_image(
+        analyzed: &AnalyzedProgram,
+        options: &ProgramCompilationOptions,
+        scope: &phalcom_semantic::artifact::projection::ArtifactProjectionScope,
+        identity_context: phalcom_semantic::metadata::stable_identity::StableIdentityContext<'_>,
+        source_fingerprint: phalcom_type_meta::fingerprint::Fingerprint128,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        Self::project_analyzed_with_projection(analyzed, options, Some((scope, identity_context, source_fingerprint)))
+    }
+
+    fn project_analyzed_with_projection(
+        analyzed: &AnalyzedProgram,
+        options: &ProgramCompilationOptions,
+        package_projection: Option<(
+            &phalcom_semantic::artifact::projection::ArtifactProjectionScope,
+            phalcom_semantic::metadata::stable_identity::StableIdentityContext<'_>,
+            phalcom_type_meta::fingerprint::Fingerprint128,
+        )>,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
         let mut runtime_root_specs = Vec::<(ModuleId, SourceRange, phalcom_semantic::types::id::TypeId, String)>::new();
         let mut runtime_data_root_specs = Vec::<(ModuleId, phalcom_semantic::types::id::TypeId, String)>::new();
         let mut runtime_call_root_specs = Vec::<(
@@ -2703,6 +2761,10 @@ impl ProgramCompiler {
             .chain(runtime_call_root_specs.iter().map(|(module, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .chain(runtime_trait_root_specs.iter().map(|(module, _, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .collect::<Vec<_>>();
+        let identity_context = package_projection.map_or_else(
+            || phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&analyzed.project_universe),
+            |(_, context, _)| context,
+        );
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
             analyzed.semantic.store(),
             Some(analyzed.semantic.declarations()),
@@ -2710,12 +2772,17 @@ impl ProgramCompiler {
             None,
             options.metadata_profile,
         )
-        .with_project_universe(&analyzed.project_universe)
         .with_algebraic_semantics(&analyzed.semantic.data_semantics, &analyzed.semantic.enum_semantics)
         .with_associated_static_domains(analyzed.semantic.associated_static_domains.as_ref())
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
+        let mut exporter = if let Some((scope, _, source_fingerprint)) = package_projection {
+            exporter
+                .with_identity_context(identity_context)
+                .with_package_projection(scope.clone(), source_fingerprint)
+        } else {
+            exporter.with_project_universe(&analyzed.project_universe)
+        };
         let mut stable_call_root_specs = Vec::with_capacity(runtime_call_root_specs.len());
-        let mut exporter = exporter;
         for (module, range, callable, parameter, ty, key) in &runtime_call_root_specs {
             stable_call_root_specs.push((
                 module.clone(),
@@ -2723,7 +2790,7 @@ impl ProgramCompiler {
                 callable.clone(),
                 phalcom_semantic::metadata::stable_identity::to_stable_callable_with_context(
                     callable,
-                    &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&analyzed.project_universe),
+                    &identity_context,
                 ),
                 *parameter,
                 exporter

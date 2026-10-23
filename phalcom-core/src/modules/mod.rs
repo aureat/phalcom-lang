@@ -11,6 +11,7 @@ mod telosc_staging;
 mod telosc_compiler_wire;
 mod telosc_dependency_plan;
 mod package_identity;
+pub mod package_image;
 pub mod canonical_universe;
 pub mod compile;
 pub mod compile_session;
@@ -34,6 +35,7 @@ pub use compile::{
     ProgramSemanticDiagnostics,
 };
 pub use compile_session::ProgramCompilationSession;
+pub use package_image::{PackageCompilerImage, PackageCompilerImageError};
 pub use context::ModuleExecutionContext;
 pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, RuntimeStaticConstantRef, TopLevelBindingInfo, TopLevelBindingKind};
 pub use reflection_cache::ReflectionCache;

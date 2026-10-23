@@ -1,0 +1,6 @@
+# Incident: package metadata fingerprint includes registered source paths
+
+- **Trigger:** F2 metadata capture must satisfy PB-I5 and ARCH-I7 while using the package publishing identity from F1.
+- **Finding:** `MetadataExporter::build_bundle` computes `revision_fingerprint` from each registered project's `source_identity`, which includes filesystem paths. Passing a publishing identity alone does not make the metadata header path-free.
+- **Ruling (Q6):** Add a bounded package projection to `MetadataExporter` with an explicit source fingerprint and `ArtifactProjectionScope`. Filter primary record families and runtime-root owners before assigning pool IDs. Referenced external type forms may remain. Package mode uses the source fingerprint derived from the package source digest for metadata header and interface inputs; it does not enumerate source project paths. The default Universe projection remains unchanged.
+- **Verification:** `package_projection_filters_primary_rows_and_ignores_source_paths` passes. It exports an owned callable primary row, omits a dependency-owned primary row, and compares header source/interface fingerprints across two registered source directory trees using the same publishing identity and source digest.

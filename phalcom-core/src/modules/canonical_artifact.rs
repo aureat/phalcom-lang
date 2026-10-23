@@ -217,6 +217,7 @@ impl From<MetadataSectionError> for TeloscArtifactError {
 /// Immutable loaded Universe compiler artifact (`PERF003.C2.P7.T12`).
 pub struct LoadedUniverseArtifact {
     pub capabilities: TeloscCapabilities,
+    header: TeloscHeaderV2,
     pub formal_image: Arc<CanonicalUniverseFormalImage>,
     pub metadata: Arc<SemanticMetadataBundle>,
     pub timings: TeloscLoadTimings,
@@ -225,6 +226,14 @@ pub struct LoadedUniverseArtifact {
 }
 
 impl LoadedUniverseArtifact {
+    pub(crate) fn header(&self) -> &TeloscHeaderV2 {
+        &self.header
+    }
+
+    pub(crate) fn availability(&self) -> &Arc<phalcom_modules::AvailabilityContract> {
+        &self.availability
+    }
+
     pub fn has_portable_executable(&self) -> bool {
         self.executable.is_some()
     }
@@ -617,6 +626,10 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
     let t_container = Instant::now();
     let container = TeloscContainerView::parse_with_allocation_budget(bytes, limits, allocations)?;
     validate_reader_header(container.header())?;
+    let header = container
+        .header()
+        .clone_with_allocation_budget(allocations)
+        .map_err(|error| allocation_error(error, transaction_limit))?;
     timings.container_validation = t_container.elapsed();
 
     let t_section = Instant::now();
@@ -741,6 +754,7 @@ fn load_universe_telosc_from_bytes_with_timings_and_budget(
         &preflight_limits,
         &expected_package_digest,
         allocations,
+        header,
         formal_image,
         metadata_bundle,
         availability,
@@ -758,6 +772,7 @@ pub(crate) fn finish_loaded_universe_telosc(
     _metadata_limits: &MetadataPreflightLimits,
     _expected_package_digest: &[u8; 32],
     allocation_budget: &mut AllocationBudget,
+    header: TeloscHeaderV2,
     formal_image: Arc<CanonicalUniverseFormalImage>,
     metadata: Arc<SemanticMetadataBundle>,
     availability: Arc<phalcom_modules::AvailabilityContract>,
@@ -772,6 +787,7 @@ pub(crate) fn finish_loaded_universe_telosc(
     let artifact = allocation_budget
         .arc(LoadedUniverseArtifact {
             capabilities,
+            header,
             formal_image,
             metadata,
             availability,
@@ -1464,14 +1480,22 @@ mod temporary_loaded_publication_allocation_census {
         signed_stage_total -= signed;
         signed_stage_total += formal_module_query_signed + formal_remaining_signed;
 
+        let fixture_header = TeloscContainerView::parse(&artifact_bytes, &limits)
+            .expect("measured fixture container remains valid")
+            .header()
+            .clone();
         let (loaded_result, observed, signed) = measure_stage("O final LoadedUniverseArtifact publication", &mut allocations, |budget| {
             let metadata = budget.arc(metadata_bundle).map_err(|error| allocation_error(error, budget_limit))?;
+            let header = fixture_header
+                .clone_with_allocation_budget(budget)
+                .expect("measured fixture header clone fits allocation budget");
             finish_loaded_universe_telosc(
                 TeloscCapabilities::compiler_only_v1(),
                 &metadata_dto,
                 &preflight_limits,
                 &expected_package_digest,
                 budget,
+                header,
                 formal_image,
                 metadata,
                 Arc::new(phalcom_modules::AvailabilityContract::default()),

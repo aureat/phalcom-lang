@@ -3,6 +3,7 @@
 
 use super::stable_identity::*;
 use crate::data_semantics::DataSemanticTable;
+use crate::artifact::projection::ArtifactProjectionScope;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
@@ -86,6 +87,8 @@ pub enum MetadataExportError {
     InvalidKindApplication(&'static str),
     #[error("query-only generalized Record projection is not a versioned metadata bundle")]
     QueryOnlyTypeProjection,
+    #[error("package metadata projection requires native static-constant products")]
+    PackageProjectionRequiresNativeStaticConstants,
     #[error("static value export error: {0}")]
     StaticValue(String),
 }
@@ -181,6 +184,7 @@ pub struct MetadataExporter<'a> {
     profile: MetadataProfile,
     identity_context: Option<StableIdentityContext<'a>>,
     query_fingerprints: bool,
+    package_projection: Option<(ArtifactProjectionScope, Fingerprint128)>,
 
     // Deduplication index maps
     kind_map: HashMap<KindData, KindNodeId>,
@@ -236,6 +240,12 @@ impl<'a> MetadataExporter<'a> {
             .map_or_else(|| to_stable_impl(r#impl), |context| to_stable_impl_with_context(r#impl, context))
     }
 
+    fn owns_module(&self, module: &phalcom_modules::ModuleId) -> bool {
+        self.package_projection
+            .as_ref()
+            .is_none_or(|(scope, _)| scope.owns_module(module))
+    }
+
     fn write_stable_parameter_fingerprint(&self, builder: &mut FingerprintBuilder, parameter: &StableTypeParameterRef) {
         match &parameter.owner {
             StableTypeParameterOwnerRef::Declaration(declaration) => {
@@ -273,6 +283,7 @@ impl<'a> MetadataExporter<'a> {
             profile,
             identity_context: None,
             query_fingerprints: false,
+            package_projection: None,
             kind_map: HashMap::new(),
             kind_node_map: HashMap::new(),
             kinds: Vec::new(),
@@ -326,6 +337,14 @@ impl<'a> MetadataExporter<'a> {
         } else {
             context
         });
+        self
+    }
+
+    /// Restricts primary metadata rows to a package scope and supplies its
+    /// path-free source fingerprint. Referenced dependency types remain
+    /// available to forms exported by package-owned rows.
+    pub fn with_package_projection(mut self, scope: ArtifactProjectionScope, source_fingerprint: Fingerprint128) -> Self {
+        self.package_projection = Some((scope, source_fingerprint));
         self
     }
 
@@ -425,6 +444,9 @@ impl<'a> MetadataExporter<'a> {
         let mut sources = Vec::new();
         if let Some(data) = self.algebraic_data {
             for info in data.data_decls.values() {
+                if !self.owns_module(&info.owner.module) {
+                    continue;
+                }
                 if let Some(static_data) = &info.static_data {
                     sources.push((
                         static_data.domain,
@@ -438,6 +460,9 @@ impl<'a> MetadataExporter<'a> {
         }
         if let Some(enums) = self.algebraic_enums {
             for info in enums.enums.values() {
+                if !self.owns_module(&info.owner.module) {
+                    continue;
+                }
                 if let Some(static_data) = &info.static_data {
                     sources.push((
                         static_data.domain,
@@ -451,6 +476,9 @@ impl<'a> MetadataExporter<'a> {
         }
         if let Some(associated) = self.associated_static_domains {
             for product in associated.values() {
+                if !self.owns_module(&product.id.owner.module) {
+                    continue;
+                }
                 sources.push((
                     product.domain,
                     product.id.owner.clone(),
@@ -463,7 +491,11 @@ impl<'a> MetadataExporter<'a> {
                 ));
             }
         }
-        if self.algebraic_data.is_none() && self.algebraic_enums.is_none() && self.associated_static_domains.is_none() {
+        if self.package_projection.is_none()
+            && self.algebraic_data.is_none()
+            && self.algebraic_enums.is_none()
+            && self.associated_static_domains.is_none()
+        {
             // A detached TypeStore-only exporter has no workspace snapshot or
             // declaration products to consult. In that standalone mode the
             // store is the complete semantic universe. Snapshot-backed export
@@ -2512,31 +2544,37 @@ impl<'a> MetadataExporter<'a> {
             Ok(())
         };
         if let Some(declarations) = self.declarations {
-            for declaration in declarations.iter().map(|(id, _)| id) {
+            for declaration in declarations.iter().map(|(id, _)| id).filter(|id| self.owns_module(&id.module)) {
                 require_project(&declaration.module.project)?;
             }
         }
         if let Some(aliases) = self.aliases {
-            for declaration in aliases.iter().map(|(id, _)| id) {
+            for declaration in aliases.iter().map(|(id, _)| id).filter(|id| self.owns_module(&id.module)) {
                 require_project(&declaration.module.project)?;
             }
         }
         if let Some(callables) = self.callables {
-            for callable in callables.iter().map(|(id, _)| id) {
+            for callable in callables.iter().map(|(id, _)| id).filter(|id| self.owns_module(id.module())) {
                 require_project(&callable.owner.module().project)?;
             }
         }
         if let Some(fields) = self.fields {
-            for field in fields.iter().map(|(id, _)| id) {
+            for field in fields.iter().map(|(id, _)| id).filter(|id| self.owns_module(&id.owner.module)) {
                 require_project(&field.owner.module.project)?;
             }
         }
         for (module, _, _) in runtime_roots {
+            if !self.owns_module(module) {
+                continue;
+            }
             require_project(&module.project)?;
         }
 
         if let Some(decls) = self.declarations {
             for (decl_id, info) in decls.iter() {
+                if !self.owns_module(&decl_id.module) {
+                    continue;
+                }
                 let form_id = self.export_type_form(info.form)?;
                 let kind_id = self.export_kind(info.kind)?;
                 let sig_id = if let Some(ref sig) = info.generic_signature {
@@ -2554,6 +2592,9 @@ impl<'a> MetadataExporter<'a> {
                 if let Some(callables) = self.callables {
                     for (callable, _) in callables.iter() {
                         if !matches!(&callable.owner, CallableOwnerId::Declaration(owner) if owner == decl_id) {
+                            continue;
+                        }
+                        if !self.owns_module(callable.module()) {
                             continue;
                         }
                         match callable.side {
@@ -2585,6 +2626,9 @@ impl<'a> MetadataExporter<'a> {
 
         if let Some(aliases) = self.aliases {
             for (decl_id, info) in aliases.iter() {
+                if !self.owns_module(&decl_id.module) {
+                    continue;
+                }
                 let target = self.export_type_form(info.form)?;
                 let generic_signature = if let Some(ref sig) = info.generic_signature {
                     Some(self.export_generic_signature(sig)?)
@@ -2605,6 +2649,9 @@ impl<'a> MetadataExporter<'a> {
 
         if let Some(call_table) = self.callables {
             for (call_id, sig) in call_table.iter() {
+                if !self.owns_module(call_id.module()) {
+                    continue;
+                }
                 let sig_id = if let Some(ref g) = sig.generics {
                     Some(self.export_generic_signature(g)?)
                 } else {
@@ -2649,6 +2696,9 @@ impl<'a> MetadataExporter<'a> {
 
         if let Some(field_table) = self.fields {
             for (field_id, sig) in field_table.iter() {
+                if !self.owns_module(&field_id.owner.module) {
+                    continue;
+                }
                 let ty_slot = self.export_declared_type_fact(&sig.declared_type);
                 out_fields.push(FieldSemanticRecord {
                     field: self.stable_field(field_id),
@@ -2663,6 +2713,9 @@ impl<'a> MetadataExporter<'a> {
         }
 
         for &(mod_id, key, ty) in runtime_roots {
+            if !self.owns_module(mod_id) {
+                continue;
+            }
             let form_id = self.export_type_form(ty)?;
             out_roots.push(RuntimeTypeFormRoot {
                 module: self.stable_module(mod_id),
@@ -2677,16 +2730,9 @@ impl<'a> MetadataExporter<'a> {
         let mut algebraic_declarations = out_declarations.iter().filter(|record| record.algebraic.is_some()).collect::<Vec<_>>();
         algebraic_declarations.sort_by(|left, right| left.declaration.cmp(&right.declaration));
 
-        let revision_fingerprint = self.identity_context.as_ref().map_or_else(
-            || {
-                let mut builder = FingerprintBuilder::new();
-                builder.write_u64(out_declarations.len() as u64);
-                builder.write_u64(out_aliases.len() as u64);
-                builder.write_u64(out_callables.len() as u64);
-                builder.write_u64(out_fields.len() as u64);
-                builder.finish()
-            },
-            |context| {
+        let revision_fingerprint = if let Some((_, source_fingerprint)) = &self.package_projection {
+            *source_fingerprint
+        } else if let Some(context) = self.identity_context.as_ref() {
                 let mut builder = FingerprintBuilder::new();
                 let mut projects = context
                     .projects
@@ -2700,8 +2746,14 @@ impl<'a> MetadataExporter<'a> {
                     builder.write_fingerprint(Fingerprint128(revision.0));
                 }
                 builder.finish()
-            },
-        );
+        } else {
+            let mut builder = FingerprintBuilder::new();
+            builder.write_u64(out_declarations.len() as u64);
+            builder.write_u64(out_aliases.len() as u64);
+            builder.write_u64(out_callables.len() as u64);
+            builder.write_u64(out_fields.len() as u64);
+            builder.finish()
+        };
         let mut interface_builder = FingerprintBuilder::new();
         interface_builder.write_fingerprint(revision_fingerprint);
         interface_builder.write_u32(self.parameters.len() as u32);
@@ -2772,7 +2824,11 @@ impl<'a> MetadataExporter<'a> {
             let context = self.identity_context.expect("metadata export requires identity context");
             let mut value_exporter = crate::metadata::static_value::StaticValueTableExporter::new(value_store, context);
             let mut constant_records = Vec::new();
+            let package_scope = self.package_projection.as_ref().map(|(scope, _)| scope.clone());
             for (_, product) in constants.iter() {
+                if package_scope.as_ref().is_some_and(|scope| !scope.owns_module(&product.id.0.module)) {
+                    continue;
+                }
                 if !product.is_successful() {
                     continue;
                 }
@@ -2810,6 +2866,8 @@ impl<'a> MetadataExporter<'a> {
             constant_records.sort_by(|a, b| a.id.cmp(&b.id));
             self.static_constants = constant_records;
             self.static_values = value_exporter.finish();
+        } else if self.package_projection.is_some() && (!self.static_constants.is_empty() || !self.static_values.is_empty()) {
+            return Err(MetadataExportError::PackageProjectionRequiresNativeStaticConstants);
         }
 
         let header = SemanticMetadataHeader {
@@ -2911,6 +2969,121 @@ mod callable_owner_fingerprint_tests {
             })
             .collect();
         assert_eq!(fingerprints.iter().collect::<std::collections::HashSet<_>>().len(), fingerprints.len());
+    }
+}
+
+#[cfg(test)]
+mod package_projection_tests {
+    use super::*;
+    use crate::artifact::projection::ArtifactProjectionScope;
+    use crate::identity::{CallableId, DeclarationId, DispatchSide};
+    use crate::metadata::stable_identity::StableIdentityContext;
+    use crate::signature::CallableSemanticSignature;
+    use crate::types::evidence::UnknownReason;
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_common::selector::Selector;
+    use phalcom_modules::{ModuleId, ModulePath, ProjectUniverse};
+    use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+
+    fn write_package(root: &std::path::Path) {
+        std::fs::create_dir_all(root).expect("create package projection fixture");
+        std::fs::write(root.join("package.ph"), "").expect("write package root source");
+    }
+
+    fn callable_signature(module: &ModuleId, name: &str) -> CallableSemanticSignature {
+        let declaration = DeclarationId::new(module.clone(), format!("{name}Owner").into_boxed_str());
+        let selector = Selector::getter(name).expect("fixture selector");
+        let callable = CallableId::new(declaration.clone(), selector.clone(), DispatchSide::Instance);
+        CallableSemanticSignature {
+            callable,
+            owner: declaration,
+            side: DispatchSide::Instance,
+            selector,
+            generics: None,
+            parameters: Box::default(),
+            declared_return: DeclaredTypeFact::unknown(UnknownReason::NoTypeEvidence),
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+            inferred_return: None,
+            source: None,
+            implementation: ImplementationKind::Phalcom,
+            native_id: None,
+            effects: EffectSpec::Pure,
+            raises: RaisesSpec::Unknown,
+            flow: ReturnFlowSpec::Value,
+            lifecycle: NativeLifecycleSpec::UNKNOWN,
+        }
+    }
+
+    fn signature_table(owned_module: &ModuleId, dependency_module: &ModuleId) -> CallableSignatureTable {
+        let mut callables = CallableSignatureTable::new();
+        callables.insert(callable_signature(owned_module, "owned"));
+        callables.insert(callable_signature(dependency_module, "dependency"));
+        callables
+    }
+
+    #[test]
+    fn package_projection_filters_primary_rows_and_ignores_source_paths() {
+        let first_directory = tempfile::tempdir().expect("create first source directory");
+        let second_directory = tempfile::tempdir().expect("create second source directory");
+        let first_package_root = first_directory.path().join("slotmap");
+        let first_dependency_root = first_directory.path().join("dependency");
+        let second_package_root = second_directory.path().join("slotmap");
+        let second_dependency_root = second_directory.path().join("dependency");
+        write_package(&first_package_root);
+        write_package(&first_dependency_root);
+        write_package(&second_package_root);
+        write_package(&second_dependency_root);
+
+        let mut first_projects = ProjectUniverse::new();
+        let first_owner = first_projects
+            .load_standalone_package(&first_package_root, None)
+            .expect("load first package projection fixture");
+        let first_dependency = first_projects
+            .load_standalone_package(&first_dependency_root, None)
+            .expect("load first dependency projection fixture");
+        let first_owned_module = ModuleId::resolved(first_owner, ModulePath::root());
+        let first_dependency_module = ModuleId::resolved(first_dependency, ModulePath::root());
+
+        let mut second_projects = ProjectUniverse::new();
+        let second_owner = second_projects
+            .load_standalone_package(&second_package_root, None)
+            .expect("load second package projection fixture");
+        let second_dependency = second_projects
+            .load_standalone_package(&second_dependency_root, None)
+            .expect("load second dependency projection fixture");
+        let second_owned_module = ModuleId::resolved(second_owner, ModulePath::root());
+        let second_dependency_module = ModuleId::resolved(second_dependency, ModulePath::root());
+
+        let package_identity = StableProjectRef::Package {
+            package: "slotmap".into(),
+            version: "2.1.0".into(),
+            artifact_fingerprint: Fingerprint128([9; 16]),
+        };
+        let source_fingerprint = Fingerprint128([7; 16]);
+        let store = TypeStore::new();
+        let root_type = store.unit();
+        let first_callables = signature_table(&first_owned_module, &first_dependency_module);
+        let first_bundle = MetadataExporter::new(&store, None, Some(&first_callables), None, MetadataProfile::RuntimePublic)
+            .with_identity_context(StableIdentityContext::publishing(&first_projects, first_owner, &package_identity))
+            .with_package_projection(ArtifactProjectionScope::new([first_owned_module.clone()]), source_fingerprint)
+            .build_bundle(&[(&first_owned_module, "owned", root_type), (&first_dependency_module, "dependency", root_type)])
+            .expect("first package metadata projection");
+
+        let second_callables = signature_table(&second_owned_module, &second_dependency_module);
+        let second_bundle = MetadataExporter::new(&store, None, Some(&second_callables), None, MetadataProfile::RuntimePublic)
+            .with_identity_context(StableIdentityContext::publishing(&second_projects, second_owner, &package_identity))
+            .with_package_projection(ArtifactProjectionScope::new([second_owned_module.clone()]), source_fingerprint)
+            .build_bundle(&[(&second_owned_module, "owned", root_type), (&second_dependency_module, "dependency", root_type)])
+            .expect("second package metadata projection");
+
+        assert_eq!(first_bundle.header.source_fingerprint, source_fingerprint);
+        assert_eq!(first_bundle.header.interface_fingerprint, second_bundle.header.interface_fingerprint);
+        assert_eq!(first_bundle.header.source_fingerprint, second_bundle.header.source_fingerprint);
+        assert_eq!(first_bundle.callables.len(), 1, "dependency-owned callable rows are excluded");
+        assert_eq!(second_bundle.callables.len(), 1, "dependency-owned callable rows are excluded");
+        assert_eq!(first_bundle.runtime_roots.len(), 1);
+        assert_eq!(first_bundle.runtime_roots[0].module.project, package_identity);
+        assert_eq!(second_bundle.runtime_roots[0].module.project, package_identity);
     }
 }
 

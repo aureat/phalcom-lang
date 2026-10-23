@@ -42,6 +42,40 @@ Slice F1 is complete and focused-tested at `6513f9467` (implementation `72c73cfe
 
 Active slice: F2, scoped package compiler-image capture. Preserve the F2 handoff rules in `ARTF001.C1.F1-handoff.md` and `docs/implementation-spec/artifact-compilation/05-spec-package-builder.md` §1–2. In particular, external dependency fingerprints come only from the immutable base published catalogue; capture must occur while the semantic session/database is alive.
 
+F2 is implemented and focused-tested. Package capture reuses dependency
+discovery and linking, keeps the semantic session alive through scoped query
+freezing, and rejects owned diagnostics plus Failed/Blocked query products. A
+source-provider boundary denies filesystem lookup for projects outside the
+package owner. The fresh-process SlotMap discriminator passed with
+`PHALCOM_DENY_SOURCE_BOOTSTRAP=1`, a zero canonical Universe build count before
+and after capture, and exact agreement across the four-module scope,
+interfaces, topology, linked authority, and executable program. Package
+metadata uses the path-free source fingerprint before pool assignment; see
+`incident-metadata-package-projection.md`.
+
+Focused evidence includes `RUSTFLAGS='' cargo check -p phalcom-core --lib`,
+the fresh-process capture test, the foreign-dependency source denial test, the
+package metadata scope/path regression, and scoped-freeze controls for
+positive, missing, and mismatched external fingerprints. The final
+`artifact_baseline_digests` run kept the three stable
+Universe sections unchanged: interface
+`b52fd6ec5264e5383aea16b3cfda4f0bb1cf80974fbd8e0c9b40b3e49fffa3ed`, semantic
+`4fa012dc4bdd8d67f1f502c27c8f9c41a0aa36bdae686077ca1b87cda6b4dbc8`, and query
+`4e7c6bbd01f9a712a64dc1a5e0b1a2f5888092b130514694d3e054504ada6e2f`. Metadata
+remains variable as recorded in `incident-metadata-nondeterminism.md`. No broad
+core or workspace suite was run for F2.
+
+F2 completion records are `ARTF001.C1.F2-walkthrough.md` and
+`ARTF001.C1.F2-handoff.md`. F3 is assigned; continue after the F2 commit using
+05 §3–4 and 07 H1/H2, with the package projection crate-boundary clarification
+recorded separately.
+
+The adopted G amendment in commit `7329c71da` records that package semantic
+imports must thread `StableOwnerCatalog` through every nested import family
+(LD-C4), and that declaration existence is VERIFY-FIRST (LD-C3). See
+`incident-package-import-identity.md`; import implementation remains a later G
+slice.
+
 ## Starting Baseline & Provenance
 
 | Parameter | Value |
