@@ -55,10 +55,28 @@ is the canonical binary encoding (existing `BinaryWriter` conventions) of:
    (`semantic_model_version`, `stable_identity_schema`,
    `module_semantic_abi`, `semantic_artifact_abi`, `query_fingerprint_abi`,
    `native_surface_schema_version`, `native_catalog_fingerprint`,
-   `type_metadata_schema_version`).
+   `type_metadata_schema_version`);
+5. **(Amendment A1, 2026-10-23, from XLNK D-XL-10.)** the artifact digest
+   of the Universe artifact the package is compiled over, for every
+   package, including packages that reach Universe only through other
+   packages.
 
-The fingerprint MUST NOT depend on the artifact bytes or digest (that would be
-circular), or on any filesystem path. Two builds from identical sources and
+Item 5 exists because Universe's `StableProjectRef` is
+`Builtin { universe, 0.1.0 }` and carries no fingerprint. Without it, two
+builds of the same package over different Universe artifacts get the same
+identity. Caches keyed by identity (Q5) then collide, and downstream
+artifacts cannot tell that their dependency's compiler products changed.
+
+*Amendment A1 status:* SPECIFIED, NOT IMPLEMENTED. `package_identity_fingerprint`
+in `phalcom-compiler-artifact/src/identity.rs` takes no Universe digest at
+the time of the amendment. Implementing A1 adds a parameter, changes every
+package identity (but not the Universe artifact's own bytes, VER-R1), and
+extends EXP-T2 with a case that changes only the Universe digest.
+
+The fingerprint MUST NOT depend on the artifact's own bytes or digest (that
+would be circular), or on any filesystem path. Depending on the Universe
+artifact's digest is not circular: that artifact exists before any package
+is built. Two builds from identical sources and
 dependencies yield the same identity. A changed dependency yields a new
 identity, so downstream artifacts that recorded the old identity fail closed
 at receipt lookup instead of silently binding to different products.

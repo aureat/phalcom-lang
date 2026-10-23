@@ -15,7 +15,9 @@ A program built from several packages must run from artifacts alone:
 - running the product reads no source, runs no semantic analysis, and emits
   no bytecode.
 
-Compiler-only package artifacts (ARTC) keep working unchanged. An
+The canonical artifact of every package generation carries the executable
+section (D-XL-1). ARTC's compiler-only artifacts stay loadable as
+compilation bases, but only as compiler-development and test fixtures. An
 executable section is an addition to a package artifact, not a different
 kind of artifact.
 
@@ -145,7 +147,8 @@ the offending artifact is allocated. There is no fallback to source.
 **XL-I7. One semantic model.** Linked sections reconstruct the same runtime
 objects that `run_compiled` produces from source for the same program. Wire
 rows are construction recipes, not a second object model. Output parity
-with the source path is a gate (`07`).
+with the source path is a gate (`07`). Initialization order is not part of
+parity (`04` XP-C4, `09` Q9).
 
 **XL-I8. Determinism.** The same inputs produce byte-identical linked
 sections and products, independent of process, host path and filesystem

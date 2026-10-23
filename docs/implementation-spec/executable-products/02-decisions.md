@@ -6,9 +6,19 @@ ratified, implementers MUST NOT re-derive them.
 
 ### D-XL-1: Package bytecode lives in the package artifact
 
-A package's bytecode is an optional `Executable` section of the package's
-own `.telosc`, built in the same pass as its compiler sections and covered
-by the same artifact digest.
+A package's bytecode is an `Executable` section of the package's own
+`.telosc`, built in the same pass as its compiler sections and covered by
+the same artifact digest.
+
+*Always executable (amended 2026-10-23).* The canonical artifact of a
+package generation, the one `archon build` produces, caches, publishes and
+puts in product chains, always carries the executable section. The
+compiler-only form (today's ARTC builder output, header without
+`PORTABLE_EXECUTABLE`) remains a valid, loadable artifact, but only for
+compiler development and test fixtures. It is never the canonical artifact
+of a package, is never cached or published as one, and cannot appear in a
+product chain (XM-V6). So each package generation has one canonical
+digest.
 
 *Why.* The toolchain requires one atomic artifact per package generation
 (`docs/specs/toolchain/README.md` §7) and says target products derive from
@@ -24,6 +34,12 @@ cannot drift apart.
 - **Bytecode only in the product.** Every product would re-capture every
   dependency's bytecode; nothing would be shared across targets or projects,
   and the cache would hold many copies of the same code.
+- **Executable section optional on canonical artifacts.** Two digests for
+  one package generation (with and without bytecode), against the toolchain's
+  one-artifact rule, and a cache that has to know which variant each
+  consumer needs. The cost of always emitting is bytecode capture on every
+  `archon build`. `archon check` does not freeze an artifact, so it does not
+  pay it.
 
 ### D-XL-2: Linked sections bind dependencies by exact artifact digest
 
@@ -38,7 +54,8 @@ by construction. The toolchain already rebuilds dependents when a
 dependency changes (ARTC EXP-P2 and Q5), so this costs nothing new.
 Universe needs this most: its `StableProjectRef` (`Builtin { universe,
 0.1.0 }`) carries no fingerprint, so without a digest two different
-Universe builds are indistinguishable.
+Universe builds are indistinguishable. D-XL-10 closes the same hole in
+package identity.
 
 *Rejected.*
 - **Per-import layout or interface fingerprints** (ABI-compatible upgrades).
@@ -174,6 +191,14 @@ side effect. The source path already computes the order per program
 (`CompiledProgram::initialization_order`); the product keeps that property.
 Universe is unaffected: its bootstrap plan stays as it is.
 
+*Order rule (amended 2026-10-23).* The product's order groups modules by
+artifact in chain order, then orders each group with Kahn's algorithm keyed
+by `StableModuleRef` (`04` XP-C4). It deliberately differs from the source
+path, whose `RuntimeGraph::initialization_order` interleaves projects and
+breaks ties by session-assigned `ResolvedProjectId`. That order cannot be
+reproduced from artifacts, and it breaks D-MW5-4. Parity between the paths
+is on output only (XR-5); aligning the source path is `09` Q9.
+
 `ModuleWorldV5` already stores an `entry` and an owned
 `initialization_order` per artifact. Those describe the package's own
 declared entry program. They remain valid compiler data and serve as a
@@ -186,3 +211,32 @@ used as a library.
 - **Computing the order at run time.** Possible, but then `telos run` must
   re-derive linker policy, and the order is not visible in `inspect` or
   covered by the product digest.
+
+### D-XL-10: Package identity includes the Universe artifact digest (ARTC amendment A1)
+
+ARTC EXP-P2 gains a fifth input: the artifact digest of the Universe
+artifact the package is compiled over. The amendment text lives in
+[`../artifact-compilation/04-spec-export-identity.md`](../artifact-compilation/04-spec-export-identity.md)
+(EXP-P2 item 5).
+
+*Why.* Universe's `StableProjectRef` carries no fingerprint, and EXP-P2's
+other inputs (sources, dependency identities, header ABI fields) do not
+change when Universe is rebuilt with the same ABI. So two `slotmap.telosc`
+files built over different Universe artifacts share one package identity.
+D-XL-2 still catches the mismatch at load, but identity-keyed caches
+(ARTC Q5, XA-6) would hand out the wrong artifact, and compiler-only
+consumers would not see that their dependency's products changed.
+
+*Consequences.* Every Universe rebuild changes every package identity and
+cascades rebuilds. That is the intended behaviour, and it matches D-XL-2.
+The Universe artifact's own bytes do not change.
+
+*Rejected.*
+- **Adding a fingerprint to `StableProjectRef::Builtin`.** Changes the
+  identity wire everywhere Universe is referenced, and every Universe
+  digest with it, for the same effect.
+- **Leaving identity alone and keying caches by artifact digest only.**
+  Fixes caches but not compiler-only consumers. The identity would still
+  claim two different things are the same.
+
+*Prerequisite.* A1 must be implemented before slice X5 (`08`).

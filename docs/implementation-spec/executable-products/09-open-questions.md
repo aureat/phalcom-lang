@@ -77,6 +77,25 @@ For a toolchain that ships Universe updates often, this will matter. A
 future schema 3 could replace exact digests with per-import interface
 fingerprints. Not needed for the SlotMap goal.
 
+## Q9. Source-path initialization order
+
+`RuntimeGraph::initialization_order` (`phalcom-modules/src/graph.rs`)
+always takes the smallest ready `ModuleId`. `ModuleId` orders by
+`ProjectIdentity` first, and `ResolvedProjectId` is a per-session number,
+so the source path:
+
+- interleaves modules of different packages whenever both are ready,
+  so a source run does not follow the dependency-first rule that D-MW5-4
+  sets for artifacts;
+- breaks ties by an order that depends on how the session numbered
+  projects, not on any stable identity.
+
+Products use XP-C4 instead. Aligning the source path (group by project in
+dependency order, tie-break by stable module identity) is a follow-up. It
+changes the order in which source programs run initializers, so it needs
+its own ruling and a check of the golden corpus. Until then, parity tests
+avoid programs whose output depends on that order (XR-5).
+
 ## Risk R1. Shared code path with every source run
 
 XM-M3 refactors `materialize_program`, which every `phalcom` run and every

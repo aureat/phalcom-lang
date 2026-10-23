@@ -94,19 +94,35 @@ chooses the target (`telos-cli.md` §5.4). No source is read.
 **XP-C3. Determinism.** The same root artifact, chain and target produce a
 byte-identical product.
 
-**XP-C4. Computing the initialization order.** Start from `target.entry`.
-Take the closure of runtime dependency edges (the `runtime_dependencies` of
-each `ModuleWorldV5` row, following external references into earlier
-artifacts), stopping at Universe modules. Order the result by artifact in
-chain order (D-MW5-4: an artifact's part of the closure runs before any
-later artifact's part), and within one artifact topologically by its owned
-edges, breaking ties by `StableModuleRef` order. The entry is last. For a
-program that can also be compiled from source, this order MUST equal the
-package-module subsequence of `CompiledProgram::initialization_order` for
-the same entry (VER-X4); if it does not, the linker's ordering rule wins
-and this rule is corrected by incident. When `target.entry` is the root
-artifact's `ModuleWorldV5::entry`, the root's part of the order MUST equal
-that module world's `initialization_order`.
+**XP-C4. Computing the initialization order.** (Amended 2026-10-23.)
+
+1. **Closure.** Start from `target.entry`. Follow the `runtime_dependencies`
+   of each `ModuleWorldV5` row, including external references into earlier
+   artifacts. Stop at Universe modules.
+2. **Grouping.** Group the closure by owning artifact, in chain order.
+   Every module of artifact `j` precedes every module of a later artifact
+   `k` (D-MW5-4 as refined by D-XL-9).
+3. **Within one artifact.** Run Kahn's algorithm over the owned edges
+   restricted to the closure, always taking the smallest ready module by
+   `StableModuleRef` order. This is the algorithm
+   `RuntimeGraph::initialization_order` (`phalcom-modules/src/graph.rs`)
+   uses, with a stable key in place of the session-assigned `ModuleId`.
+4. **Entry last.** Every other module in the closure is a transitive
+   dependency of the entry, so the entry comes out last in the root
+   artifact's group.
+
+*Cross-check.* When `target.entry` is the root artifact's
+`ModuleWorldV5::entry`, the root group MUST equal that module world's
+`initialization_order`. Within one project, `ModuleId` and
+`StableModuleRef` order modules by path, so the two algorithms agree. A
+mismatch is an incident.
+
+*Not required.* The order is **not** required to equal the source path's
+`CompiledProgram::initialization_order`. That order interleaves projects,
+because it always takes the globally smallest ready `ModuleId`, and it
+breaks ties by `ResolvedProjectId`, which is assigned per compilation
+session. The two paths must agree on observable output (XR-5), not on
+order. `09` Q9 tracks aligning the source path with this rule.
 
 ## 3. Validation at run time
 

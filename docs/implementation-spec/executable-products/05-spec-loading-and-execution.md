@@ -121,11 +121,11 @@ name the artifact and module.
 
 ## 4. Running a product
 
-**XR-1. Validate the order.** Before running, check the product's
-`initialization` list: every module is owned by some chain package, the
-last one is `target.entry`, and the order satisfies XP-C4's constraints
-(artifact order, then owned topological order). A forged order is
-rejected, not repaired.
+**XR-1. Validate the order.** Before running, recompute XP-C4 from the
+chain's module worlds and require the product's `initialization` list to
+equal it exactly. A forged or stale order is rejected, not repaired. The
+stored list exists for inspection and for the product digest. It is never
+trusted on its own.
 
 **XR-2. Run.** For each module in `initialization`, run its initializer in
 the module (`run_in_module`), then mark it `Initialized`, exactly as
@@ -146,4 +146,8 @@ test-only counter (`artifact_run_emission_count`, new) proves it (VER-X3).
 **XR-5. Parity.** For a program that can also run from source, a product
 run produces the same standard output and the same success or failure as
 `LoadedUniverseArtifact::compile_user_entry` plus `VM::run_compiled` for the
-same entry (XL-I7).
+same entry (XL-I7). Parity covers output and result, not the order in which
+initializers run (XP-C4). A program whose output depends on initializers
+from different packages interleaving can legitimately differ between the
+two paths until `09` Q9 is resolved. Parity tests MUST NOT use such
+programs.

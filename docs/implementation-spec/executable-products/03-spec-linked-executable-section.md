@@ -186,11 +186,13 @@ Digests are checked against the actual chain at load (XM-V2), not here.
 
 ## 3. Builder changes
 
-**XS-B1.** `build_package_telosc` takes an output request: compiler-only
-(today's behaviour) or compiler-plus-executable. The executable variant
-requires the loaded dependency chain, including every dependency's
-executable section, and fails with a typed error if any dependency is
-compiler-only.
+**XS-B1.** `build_package_telosc` builds the canonical artifact, with the
+executable section, by default (D-XL-1). It requires the loaded dependency
+chain, including every dependency's executable section, and fails with a
+typed error if any dependency is compiler-only. A separate, explicitly
+named entry point (for example `build_package_compiler_only_telosc`) keeps
+today's compiler-only output for compiler development and test fixtures.
+Its rustdoc MUST state that its output is not a canonical package artifact.
 
 **XS-B2.** The executable section is captured from the same
 `PackageCompilerImage` (same `ExecutableLinkedProgram`, same publishing

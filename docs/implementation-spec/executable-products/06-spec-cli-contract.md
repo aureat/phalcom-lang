@@ -24,8 +24,11 @@ sections and a schema 2 executable section (XS-B1). It MUST:
 - not search for dependencies: a dependency named in `project.toml` (later
   `Archon.toml`) without a supplied artifact is an error, not a search.
 
-`--emit compiler-artifact` builds today's compiler-only artifact. It is for
-compiler development and cannot appear in a product chain (XM-V6).
+`--emit artifact` always produces the canonical artifact, with its
+executable section (D-XL-1). `--emit compiler-artifact` builds today's
+compiler-only artifact. It is for compiler development and test fixtures
+only. Archon MUST NOT request it, and it cannot appear in a product chain
+(XM-V6).
 
 **XT-C2. `telos compile --bootstrap-universe --emit artifact`.** Builds
 `universe.telosc` with its schema 1 executable section through
@@ -72,11 +75,12 @@ implement this sequence, which reuses `archon build` exactly
 naming the toolchain, the pinned `universe.telosc`, every dependency's
 source or artifact authority, and the selected target.
 
-**XA-2. Executable artifacts for the whole closure.** For every package in
-the target's closure, obtain a package artifact *with* a schema 2 section,
-from the cache or by asking Telos to build it (XT-C1). A cached
-compiler-only artifact for the same package does not satisfy a run; it has
-a different digest and Archon caches it under its own key.
+**XA-2. Canonical artifacts for the whole closure.** For every package in
+the target's closure, obtain its canonical artifact from the cache, or ask
+Telos to build it (XT-C1, `--emit artifact`). Canonical artifacts always
+carry a schema 2 section (D-XL-1), so the artifact that `archon build`
+caches is the one `archon run` uses. Archon never builds or caches
+compiler-only artifacts.
 
 **XA-3. Product.** Ask Telos for the product (XT-C3) and cache it. Its
 build key includes the root artifact's digest and the target, so a rebuilt
@@ -94,4 +98,6 @@ not a user program failure.
 digests, rebuilding a dependency invalidates every dependent's executable
 artifact and every product that contains it. Archon's build index MUST key
 dependents on dependency digests (`builds-artifacts-and-caches.md`,
-"Dependency invalidation"; ARTC Q5).
+"Dependency invalidation"; ARTC Q5). With ARTC amendment A1 (D-XL-10), a
+Universe rebuild changes every package identity too, so identity-keyed and
+digest-keyed lookups agree.

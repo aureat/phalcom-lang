@@ -14,6 +14,7 @@ Stage narrow paths only. Never `git add -A`. Never create or switch branches.
 | F3 `build_package_telosc` green (today: `module 0 has empty path`) | X3 onward | RED |
 | G external-aware loading and composition | X4 onward | NOT STARTED |
 | H SlotMap package proof, including the package source-denial hook | X5 onward | NOT STARTED |
+| Amendment A1 to EXP-P2: Universe artifact digest as a package identity input (D-XL-10) | X5 onward | SPECIFIED, NOT IMPLEMENTED |
 
 X0, X1 and X2 do not depend on ARTC beyond the anchor and MAY run first.
 
@@ -94,8 +95,12 @@ Files: `phalcom-core/src/modules/package_artifact.rs`,
 `src/artifact/capture.rs`.
 
 1. Capture VM and package capture (XS-C2…C6). **Commit.**
-2. `build_package_telosc` output request and extended self-check (XS-B1…B3).
-   **Commit.**
+2. `build_package_telosc` emits the canonical (executable) artifact by
+   default; the compiler-only builder moves to its own named entry point;
+   the self-check is extended (XS-B1…B3). Existing ARTC tests that assert a
+   compiler-only result (VER-H1: "capabilities exclude
+   `PORTABLE_EXECUTABLE`") switch to the compiler-only entry point in the
+   same commit, so their meaning is unchanged. **Commit.**
 
 Gate: VER-X1 green.
 

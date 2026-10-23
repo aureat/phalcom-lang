@@ -76,7 +76,9 @@ refactor) MAY start earlier because they do not depend on package loading.
   artifact with an optional executable section. It reuses ARTC's
   `ModuleWorldV5` external table, publishing identity (EXP-*), package
   loading and composition (LD-*). It supersedes ARTC's non-goal "Executable
-  package artifacts" (01 §6) and rewrites LDH-13 (see `07` §4).
+  package artifacts" (01 §6), rewrites LDH-13 (see `07` §4), makes ARTC's
+  compiler-only builder output a fixture-only form (D-XL-1), and amends
+  EXP-P2 with a Universe-digest identity input (amendment A1, D-XL-10).
 - **Toolchain (`docs/specs/toolchain/`).** That tree owns the user-facing
   command surface, the package model, caches and the registry. It leaves the
   executable product format open (`telos-cli.md` §7: "The exact executable
