@@ -1440,8 +1440,8 @@ impl TypeStore {
             .iter()
             .map(|id| {
                 Ok(TypeEntryV1 {
-                    kind: ids.kind(self.type_kinds[id.index()])?,
-                    form: ids.type_form(&self.types[id.index()])?,
+                    kind: ids.kind(self.kind_of(*id))?,
+                    form: ids.type_form(self.get(*id))?,
                 })
             })
             .collect::<Result<_, ArtifactError>>()?;
@@ -1449,7 +1449,7 @@ impl TypeStore {
             .kind_order
             .iter()
             .map(|id| {
-                let value = &self.kinds[id.index()];
+                let value = self.get_kind(*id);
                 Ok(match value {
                     KindData::Type => KindV1::Type,
                     KindData::RecordRow => KindV1::RecordRow,
@@ -1468,7 +1468,7 @@ impl TypeStore {
             .parameter_order
             .iter()
             .map(|id| {
-                let value = &self.type_parameters[id.index()];
+                let value = self.type_parameter(*id);
                 Ok(ParameterV1 {
                     owner: owner_out(&value.owner, &ids.identity)?,
                     index: value.index,
@@ -1489,7 +1489,7 @@ impl TypeStore {
             .row_order
             .iter()
             .map(|id| {
-                let value = &self.row_arena[id.index()];
+                let value = self.record_row(*id);
                 Ok(RowV1 {
                     fields: value.fields.iter().map(|field| ids.field(field)).collect::<Result<_, _>>()?,
                     tail: match value.tail {
@@ -1513,7 +1513,7 @@ impl TypeStore {
             .family_order
             .iter()
             .map(|id| {
-                let value = &self.family_arena[id.index()];
+                let value = self.get_family(*id);
                 Ok(FamilyV1 {
                     members: value
                         .members
@@ -1536,7 +1536,7 @@ impl TypeStore {
             .variant_order
             .iter()
             .map(|id| {
-                let variant = &self.variant_identities[id.index()];
+                let variant = self.variant_identity(*id);
                 Ok(StableVariantRef {
                     owner: declaration_out(&variant.owner, &ids.identity)?,
                     selector: variant.selector.encode().into(),
@@ -1547,7 +1547,7 @@ impl TypeStore {
             .domain_order
             .iter()
             .map(|id| {
-                let value = &self.static_domains[id.index()];
+                let value = self.static_domain(*id).ok_or_else(|| invalid("static domain is absent from the store lineage"))?;
                 Ok(match value {
                     StaticDomainData::ConstInt => StaticDomainV1::ConstInt,
                     StaticDomainData::Nominal { declaration } => StaticDomainV1::Nominal {
