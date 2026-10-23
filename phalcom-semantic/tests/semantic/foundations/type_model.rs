@@ -690,8 +690,12 @@ fn parameter_artifact_graph() -> phalcom_compiler_artifact::semantic::type_store
         KindId::TYPE,
     ));
     store.parameter_form(parameter);
+    let projects = phalcom_modules::project::ProjectUniverse::new();
     store
-        .project_artifact(&phalcom_compiler_artifact::ValidationLimits::default())
+        .project_artifact(
+            &phalcom_compiler_artifact::ValidationLimits::default(),
+            phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&projects),
+        )
         .expect("parameter graph")
 }
 
