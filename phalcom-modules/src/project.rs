@@ -345,6 +345,37 @@ impl ProjectUniverse {
         id
     }
 
+    /// Finds a package project registered by [`Self::register_artifact_package`]
+    /// under the exact package `name`.
+    pub fn artifact_package_named(&self, name: &str) -> Option<ResolvedProjectId> {
+        self.projects
+            .iter()
+            .find(|project| project.manifest.is_none() && project.root_dir.as_os_str().is_empty() && project.name == name)
+            .map(|project| project.id)
+    }
+
+    /// Binds a manifest dependency to an already-registered artifact package.
+    ///
+    /// A precompiled dependency supersedes its source: a package dependency
+    /// matches by package name, and a path dependency by the name in the
+    /// dependency's manifest (or by `alias` when no manifest is present).
+    /// Only that manifest is read, never the dependency's source tree.
+    fn artifact_dependency(&self, alias: &ModuleComponent, spec: &DependencySpec, root_dir: &Path) -> Result<Option<ResolvedProjectId>, ProjectError> {
+        let name = match spec {
+            DependencySpec::Package { package, .. } => package.clone(),
+            DependencySpec::Path { path } => {
+                let dep_dir = if path.is_absolute() { path.clone() } else { root_dir.join(path) };
+                let dep_manifest = dep_dir.join("project.toml");
+                if dep_manifest.is_file() {
+                    ProjectManifest::load_file(&dep_manifest)?.validate()?.name
+                } else {
+                    alias.to_string()
+                }
+            }
+        };
+        Ok(self.artifact_package_named(&name))
+    }
+
     /// Allocates a fresh synthetic execution identity for inline/standalone code.
     pub fn allocate_synthetic_id(&mut self) -> SyntheticProjectId {
         self.synthetic_ids.allocate()
@@ -458,6 +489,10 @@ impl ProjectUniverse {
         let mut resolved_dependencies = BTreeMap::new();
 
         for (alias, (_raw_alias, spec)) in &validated.dependencies {
+            if let Some(dep_id) = self.artifact_dependency(alias, spec, &root_dir)? {
+                resolved_dependencies.insert(alias.clone(), dep_id);
+                continue;
+            }
             let dep_manifest_path = match spec {
                 DependencySpec::Path { path } => {
                     let dep_dir = if path.is_absolute() { path.clone() } else { root_dir.join(path) };

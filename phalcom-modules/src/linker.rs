@@ -1086,8 +1086,9 @@ impl ModuleLinker {
             // may own source-backed bindings that the user program did not
             // import explicitly. They still participate in strict DAG checks
             // and receive finalized read slots, but are not compiled as part
-            // of this linked source closure.
-            if !known_modules.contains(&requirement.dependency) && !requirement.dependency.project.is_universe() {
+            // of this linked source closure. Modules of precompiled package
+            // artifacts are likewise initialized before this program.
+            if !known_modules.contains(&requirement.dependency) && !requirement.dependency.project.is_universe() && !self.is_external(&requirement.dependency) {
                 return Err(LinkError::MissingModule {
                     module: requirement.dependency.clone(),
                 });

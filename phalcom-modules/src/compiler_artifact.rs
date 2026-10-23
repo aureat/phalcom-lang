@@ -1135,9 +1135,12 @@ pub fn project_package_module_world_v5(
     };
     let mut projected = ModuleWorldV5 {
         entry: package_local_id(&local_ids, &ownership_root, "package root module")?,
+        // Upstream package modules are initialized by their own artifacts
+        // before this package; only owned modules are ordered here.
         initialization_order: executable
             .initialization_order
             .iter()
+            .filter(|module| module.project == executable.entry.project)
             .map(|module| package_local_id(&local_ids, module, "initialization order"))
             .collect::<Result<_, _>>()?,
         modules,
