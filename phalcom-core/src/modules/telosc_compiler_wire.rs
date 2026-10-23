@@ -231,3 +231,28 @@ impl StagedTeloscCompilerWire {
         Ok(modules)
     }
 }
+
+#[cfg(test)]
+mod staging_transaction_tests {
+    use super::*;
+
+    #[test]
+    fn rejected_container_can_be_retried_without_spending_load_budget() {
+        let mut allocations = AllocationBudget::new(1024 * 1024);
+        let limits = ValidationLimits::default();
+        let invalid = [0_u8; 256];
+        let before = allocations.requested();
+        for _ in 0..3 {
+            assert!(StagedTeloscCompilerWire::decode(&invalid, &limits, &mut allocations).is_err());
+            assert_eq!(allocations.requested(), before);
+        }
+    }
+
+    #[test]
+    fn empty_package_set_has_a_deterministic_empty_plan() {
+        let mut allocations = AllocationBudget::new(1024);
+        let limits = ValidationLimits::default();
+        let order = StagedTeloscCompilerWire::package_import_order(&[], &limits, &mut allocations).unwrap();
+        assert!(order.is_empty());
+    }
+}
