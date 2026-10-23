@@ -181,7 +181,7 @@ impl StagedTeloscCompilerWire {
             &modules,
             &self.module_world.previous.world,
             limits,
-            allocations,
+            &mut generation_budget,
         )?;
         // A query-image reader is only valid for the exact imported native
         // type/static generation. Enforce that property before returning.
@@ -215,6 +215,7 @@ impl StagedTeloscCompilerWire {
                 "ordinary package module staging requires a package artifact identity".into(),
             )).into());
         }
+        let mut module_budget = allocations.child(allocations.remaining());
         let portable = &self.module_world.previous.world;
         let candidate = phalcom_modules::compiler_artifact::stage_artifact_project_authorities(
             projects,
@@ -224,8 +225,9 @@ impl StagedTeloscCompilerWire {
             resolver,
         )?;
         let modules = phalcom_modules::compiler_artifact::load_module_world_with_project_catalog_and_allocation_budget(
-            portable, limits, allocations, candidate,
+            portable, limits, &mut module_budget, candidate,
         )?;
+        allocations.commit_child(module_budget).map_err(ArtifactError::Allocation)?;
         Ok(modules)
     }
 }
