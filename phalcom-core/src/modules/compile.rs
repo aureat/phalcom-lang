@@ -1205,6 +1205,10 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
     for module in &pending {
         visited.insert(module.clone());
     }
+    // The program's own package is discovered whole: every child its
+    // packages `expose` belongs to its public surface even when no module of
+    // the program imports it, so a published artifact carries all of them.
+    let root_project = pending.first().map(|module| module.project.clone());
 
     while let Some(current_id) = pending.pop() {
         let interface = if let Some(interface) = interfaces.get(&current_id) {
@@ -1226,6 +1230,18 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
                         pending.push(pkg_id);
                     }
                     curr_parent = parent.parent();
+                }
+            }
+        }
+
+        if root_project.as_ref() == Some(&current_id.project) && !resolver.has_external_authority(&current_id) {
+            for component in interface.exposed_children.iter() {
+                let child = ModuleId {
+                    project: current_id.project.clone(),
+                    path: current_id.path.join(component.clone()),
+                };
+                if visited.insert(child.clone()) {
+                    pending.push(child);
                 }
             }
         }
