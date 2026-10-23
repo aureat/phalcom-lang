@@ -1154,7 +1154,7 @@ pub enum ProgramCompileError {
     /// Immutable artifact generations could not be composed into one semantic
     /// authority for this source compilation.
     #[error("external artifact semantic authority error: {0}")]
-    ExternalSemanticAuthority(#[from] phalcom_semantic::canonical_image::CanonicalImageError),
+    ExternalSemanticAuthority(String),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
@@ -2233,7 +2233,9 @@ impl ProgramAnalyzer {
         let runtime_modules = discovered.interfaces.keys().cloned().collect::<BTreeSet<_>>();
         let linker = ModuleLinker::new(universe.clone(), discovered.interfaces.clone())
             .with_external_modules(external_modules);
-        let mut semantic_session = base.semantic_session(phalcom_semantic::identity::WorkspaceId(1))?;
+        let mut semantic_session = base
+            .semantic_session(phalcom_semantic::identity::WorkspaceId(1))
+            .map_err(|error| ProgramCompileError::ExternalSemanticAuthority(error.to_string()))?;
         let (linked, semantic) = link_analyze_finalize(
             &linker,
             entry.clone(),
