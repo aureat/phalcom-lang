@@ -102,7 +102,7 @@ pub fn project_package_module_world_v5(
     world: &CanonicalExternalModuleWorld,      // owned modules only
     executable: &ExecutableLinkedProgram,      // owned modules only
     external: &dyn ExternalModuleAuthority,
-    identity: &StableIdentityContext<'_>,      // EXP-C1 publishing context
+    stable_module_ref: &dyn Fn(&ModuleId) -> StableModuleRef,
     limits: &ValidationLimits,
 ) -> Result<ModuleWorldV5, ArtifactError>;
 ```
@@ -111,9 +111,12 @@ Rules:
 
 - **PB-M2.** Local ids: owned modules in `ModuleId` order → `ArtifactModuleId`
   (the same ordering rule as Universe).
-- **PB-M3.** Module identities via `to_stable_module_with_context(identity)`.
-  Owned modules export with the publishing identity, external modules with
-  their receipt-bound `Package` or `Builtin` identity.
+- **PB-M3.** Core supplies `stable_module_ref` by capturing the EXP-C1
+  publishing context and calling `to_stable_module_with_context`. The
+  `phalcom-modules` projection uses this callback for module identity and
+  validates the returned references; it does not depend on semantic identity
+  policy. Owned modules export with the publishing identity, external modules
+  with their receipt-bound `Package` or `Builtin` identity.
 - **PB-M4.** Replace `portable_id` with
   `module_ref(local_ids, external_index, id) -> Result<ModuleRefV1>`. If `id`
   is owned, return `Local`. Otherwise, if `external.contains(id)`, return
