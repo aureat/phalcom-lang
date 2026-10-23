@@ -49,6 +49,48 @@ pub(crate) struct StagedTeloscCompilerWire {
 }
 
 impl StagedTeloscCompilerWire {
+    /// Plan an immutable artifact set before importing any native owner.
+    ///
+    /// No semantic store is published by this step. Dependencies are sorted
+    /// by their exact stable package identity, and non-artifact source
+    /// dependencies are not admitted through this source-free authority path.
+    pub(crate) fn package_import_order(
+        artifacts: &[Self],
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Vec<usize>, TeloscStagingError> {
+        use super::telosc_dependency_plan::{PackageDependencyNode, plan_package_dependencies};
+
+        let mut nodes = allocations.vector::<PackageDependencyNode<'_>>(artifacts.len())
+            .map_err(ArtifactError::Allocation)?;
+        for artifact in artifacts {
+            if !matches!(&artifact.header.package_identity, TeloscPackageIdentity::Package { .. }) {
+                return Err(ArtifactError::from(ValidationError::IncompatibleWorld(
+                    "artifact dependency plan requires exact package identities".into(),
+                )).into());
+            }
+            let wire = &artifact.module_world.previous.world;
+            let root = wire.modules.get(wire.entry.0 as usize).ok_or_else(|| {
+                ArtifactError::from(ValidationError::ReferentialIntegrity("missing package artifact entry module".into()))
+            })?;
+            if !root.identity.path.is_empty() || !artifact.header.package_identity.matches_project(&root.identity.project) {
+                return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
+                    "package artifact header does not own its root module".into(),
+                )).into());
+            }
+            if wire.modules.iter().any(|module| module.identity.project != root.identity.project) {
+                return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
+                    "package artifact embeds a foreign module owner".into(),
+                )).into());
+            }
+            nodes.push(PackageDependencyNode {
+                owner: &root.identity.project,
+                external_projects: &wire.external_projects,
+            });
+        }
+        Ok(plan_package_dependencies(&nodes, limits, allocations)?)
+    }
+
     /// Decode one compiler-capable artifact without granting it semantic,
     /// module, or executable ownership. All allocations share the caller's
     /// cumulative transaction budget.
