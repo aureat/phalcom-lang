@@ -14,7 +14,7 @@ use phalcom_compiler_artifact::module_world::ModuleWorldV4;
 use phalcom_compiler_artifact::query::QueryImageV4;
 use phalcom_compiler_artifact::semantic::world::SemanticWorldV4;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
-use phalcom_modules::{CanonicalExternalModuleWorld, ExternalModuleAuthoritySet, ProjectUniverse, TrustedPackageResolver};
+use phalcom_modules::{CanonicalExternalModuleWorld, ExternalModuleAuthoritySet, ModuleId, ProjectUniverse, TrustedPackageResolver};
 use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_semantic::artifact::import::{
     validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget,
@@ -61,6 +61,12 @@ impl ComposedPackageSemanticBase {
     pub(crate) fn type_store(&self) -> &Arc<TypeStore> { &self.type_store }
     pub(crate) fn static_values(&self) -> &Arc<StaticValueStore> { &self.static_values }
     pub(crate) fn generations(&self) -> &[StagedPackageSemanticGeneration] { &self.generations }
+
+    /// Exact semantic generation owning one externally provided module.
+    pub(crate) fn generation_for_module(&self, module: &ModuleId) -> Option<&StagedPackageSemanticGeneration> {
+        let origin = self.modules.origin(module)?;
+        self.generations.get(origin.index())
+    }
 }
 
 /// Validated portable compiler products, prior to native ID relocation.
