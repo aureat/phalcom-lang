@@ -36,9 +36,11 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## General artifact compilation continuation (2026-10-23)
 
-Detailed slice contracts remain in `docs/implementation-spec/artifact-compilation/`. Slice E is implemented and focused-tested: core holds `ModuleWorldV5` above the decoder while the Universe builder retains V4 wire bytes; the compatibility semantic importer lifts decoded V2 module worlds once before calling V5 loaders. `RUSTFLAGS='' cargo check -p phalcom-core --lib --test core`, `RUSTFLAGS='' cargo test -p phalcom-core --lib --no-run`, and the focused semantic identity test passed. The inherited core target failures remain recorded in that spec's `baseline-failures.md`.
+Detailed slice contracts remain in `docs/implementation-spec/artifact-compilation/`. Slice E is implemented and focused-tested: core holds `ModuleWorldV5` above the decoder while the Universe builder retains V4 wire bytes; the compatibility semantic importer lifts decoded V2 module worlds once before calling V5 loaders. `RUSTFLAGS='' cargo check -p phalcom-core --lib --test core` and `RUSTFLAGS='' cargo test -p phalcom-core --lib --no-run` passed. Inherited core target failures remain recorded in that spec's `baseline-failures.md`.
 
-Slice F1 is active. EXP-T1 has a focused passing regression; publishing identity context, fingerprint, path-free source digest, package-owned projection coverage, and the per-section VER-R1 digest check remain. F2 remains unstarted.
+Slice F1 is complete and focused-tested at `6513f9467` (implementation `72c73cfe0`, followed by helper formatting). Publishing identity now reaches semantic, query, type, and static-value export; package fingerprints and path-free source digests are implemented. EXP-T1, EXP-T2, EXP-T3, and VER-R1 passed. The three stable per-section digests match `baseline-digests.md`; metadata remains process-nondeterministic as recorded in `incident-metadata-nondeterminism.md`. See `ARTF001.C1.F1-walkthrough.md` for exact evidence.
+
+Active slice: F2, scoped package compiler-image capture. Preserve the F2 handoff rules in `ARTF001.C1.F1-handoff.md` and `docs/implementation-spec/artifact-compilation/05-spec-package-builder.md` §1–2. In particular, external dependency fingerprints come only from the immutable base published catalogue; capture must occur while the semantic session/database is alive.
 
 ## Starting Baseline & Provenance
 
