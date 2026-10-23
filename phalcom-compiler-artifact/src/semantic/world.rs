@@ -1924,6 +1924,24 @@ impl StructuralValidationAuthority<'_> {
         shell || self.data_contracts().iter().any(|row| &row.owner == owner) || self.enum_contracts().iter().any(|row| &row.owner == owner)
     }
 
+    /// Reports whether `owner` is local and present, or is owned by a project
+    /// this world does not publish; upstream owners are checked when a
+    /// package composes over its prefix authority.
+    pub(super) fn has_declaration_or_upstream(&self, owner: &StableDeclarationRef) -> bool {
+        self.has_declaration(owner) || self.is_upstream(owner)
+    }
+
+    /// Reports whether `owner` belongs to a project with no declaration shell
+    /// in this world, i.e. an upstream authority this world only references.
+    pub(super) fn is_upstream(&self, owner: &StableDeclarationRef) -> bool {
+        let local = |declaration: &StableDeclarationRef| declaration.module.project == owner.module.project;
+        let published = match self {
+            Self::V1(contracts) => contracts.declaration_shells.iter().any(|row| local(&row.declaration)),
+            Self::V2(contracts) => contracts.declaration_shells.iter().any(|row| local(&row.declaration)),
+        };
+        !published
+    }
+
     pub(super) fn alias_form(&self, owner: &StableDeclarationRef) -> Option<ArtifactTypeId> {
         match self {
             Self::V1(contracts) => contracts
@@ -2955,19 +2973,26 @@ impl SemanticWorldValidationView<'_> {
                     if family.owner != *lookup_owner {
                         return Err(invalid("associated-family identity disagrees with its lookup owner"));
                     }
-                    let surface = self.associated_surface(lookup_owner)?;
-                    let declared_family = surface
-                        .families
-                        .iter()
-                        .find(|candidate| candidate.selector == family.selector)
-                        .ok_or_else(|| invalid("associated-family capture references an absent declaration family"))?;
+                    let upstream = self.structural.is_upstream(lookup_owner);
+                    let declared_family = if upstream {
+                        None
+                    } else {
+                        let surface = self.associated_surface(lookup_owner)?;
+                        Some(
+                            surface
+                                .families
+                                .iter()
+                                .find(|candidate| candidate.selector == family.selector)
+                                .ok_or_else(|| invalid("associated-family capture references an absent declaration family"))?,
+                        )
+                    };
                     if members.len() > limits.max_semantic_entries_per_family {
                         return Err(invalid("associated-family capture exceeds its member limit"));
                     }
                     for member in members {
                         validate_family_operation_shape(&member.operation, limits)?;
                         self.validate_associated_member_owner(lookup_owner, &member.member)?;
-                        if !declared_family.members.contains(&member.member) {
+                        if declared_family.is_some_and(|declared| !declared.members.contains(&member.member)) {
                             return Err(invalid("associated-family capture contains a member absent from its declaration family"));
                         }
                         if let Some(target) = &member.target {
@@ -3024,7 +3049,7 @@ impl SemanticWorldValidationView<'_> {
     }
 
     fn validate_declaration_reference(&self, owner: &StableDeclarationRef) -> Result<(), ArtifactError> {
-        if self.structural.has_declaration(owner)
+        if self.structural.has_declaration_or_upstream(owner)
             || self.trait_surfaces.iter().any(|row| &row.declaration == owner)
             || self.dispatch_surfaces.iter().any(|row| &row.declaration == owner)
             || self.associated_surfaces.iter().any(|row| &row.owner == owner)
@@ -3050,6 +3075,9 @@ impl SemanticWorldValidationView<'_> {
     fn validate_associated_member_owner(&self, owner: &StableDeclarationRef, member: &AssociatedMemberV1) -> Result<(), ArtifactError> {
         if associated_member_owner(member) != owner {
             return Err(invalid("associated member owner disagrees with its lookup owner"));
+        }
+        if self.structural.is_upstream(owner) {
+            return Ok(());
         }
         let has_primary_owner_authority = match member {
             AssociatedMemberV1::Variant { variant } => self.structural.variant_contracts().iter().any(|contract| contract.variant == *variant),
@@ -4634,11 +4662,18 @@ fn validate_witness_plan(
     use CallableConformanceFailureV1 as Failure;
     use CallableRequirementSelectionV1 as Selection;
 
-    let trait_surface = trait_surfaces
+    let Some(trait_surface) = trait_surfaces
         .binary_search_by(|surface| surface.declaration.cmp(&witness.trait_ref_template.declaration))
         .ok()
         .map(|index| &trait_surfaces[index])
-        .ok_or_else(|| invalid("witness plan references an absent trait surface"))?;
+    else {
+        // A package may implement a trait published by an upstream artifact;
+        // that surface is checked when the package composes over its prefix.
+        if witness.trait_ref_template.declaration.module.project != witness.impl_id.module.project {
+            return Ok(());
+        }
+        return Err(invalid("witness plan references an absent trait surface"));
+    };
     let type_index = |ty: crate::semantic::type_store::ArtifactTypeId| -> Result<usize, ArtifactError> {
         let index = usize::try_from(ty.0).map_err(|_| invalid("witness type index exceeds address space"))?;
         if index >= type_graph.types.len() {
@@ -4846,11 +4881,17 @@ fn validate_derived_conformance_rule(
     allocations: &mut AllocationBudget,
 ) -> Result<(), ArtifactError> {
     let rule = &record.rule;
-    let trait_surface = trait_surfaces
+    let Some(trait_surface) = trait_surfaces
         .binary_search_by(|surface| surface.declaration.cmp(&rule.trait_ref.declaration))
         .ok()
         .map(|index| &trait_surfaces[index])
-        .ok_or_else(|| invalid("derived conformance rule references an absent trait surface"))?;
+    else {
+        // Upstream trait surfaces are checked during prefix composition.
+        if rule.trait_ref.declaration.module.project != rule.impl_id.module.project {
+            return Ok(());
+        }
+        return Err(invalid("derived conformance rule references an absent trait surface"));
+    };
     let type_index = |ty: ArtifactTypeId| -> Result<usize, ArtifactError> {
         let index = usize::try_from(ty.0).map_err(|_| invalid("derived rule type index exceeds address space"))?;
         if index >= type_graph.types.len() {

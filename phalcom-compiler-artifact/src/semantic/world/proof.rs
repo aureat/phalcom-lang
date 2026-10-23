@@ -337,7 +337,7 @@ impl ProofValidator<'_> {
     fn variant(&self, variant: &StableVariantRef) -> Result<(), ArtifactError> {
         if self
             .world
-            .is_some_and(|world| !world.structural.variant_contracts().iter().any(|row| &row.variant == variant))
+            .is_some_and(|world| !world.structural.is_upstream(&variant.owner) && !world.structural.variant_contracts().iter().any(|row| &row.variant == variant))
         {
             return Err(invalid("callable proof variant owner is absent"));
         }
@@ -560,7 +560,7 @@ impl ProofValidator<'_> {
             } => {
                 if let Some(world) = self.world {
                     for owner in owner.iter().chain(owner_candidates) {
-                        if !world.structural.has_declaration(owner) {
+                        if !world.structural.has_declaration_or_upstream(owner) {
                             return Err(invalid("callable pattern declaration owner is absent"));
                         }
                     }
@@ -628,7 +628,8 @@ impl ProofValidator<'_> {
                             return Err(invalid("callable field pattern owner or ordinal is invalid"));
                         }
                         if let Some(world) = self.world {
-                            if !world
+                            if !world.structural.is_upstream(&field.variant.owner)
+                                && !world
                                 .structural
                                 .variant_contracts()
                                 .iter()
