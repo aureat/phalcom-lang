@@ -31,6 +31,7 @@ use crate::diagnostic::{DiagnosticCode, DiagnosticLabel, SemanticDiagnostic, Sem
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
 use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
+use crate::external_base::ExternalSemanticSessionSeed;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::presentation::FormalSemanticProjection;
 use crate::request::{AdvisoryLevel, PresentationLevel, SemanticProductRequest, SourceSemanticLevel};
@@ -711,6 +712,7 @@ pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
     module_session: WorkspaceModuleSession,
     external_modules: Option<Arc<dyn phalcom_modules::ExternalModuleAuthority>>,
+    external_seed: Option<Arc<ExternalSemanticSessionSeed>>,
     universe_source_provider: phalcom_modules::UniverseSourceProvider,
     db: SemanticDb,
     store: Arc<TypeStore>,
@@ -874,6 +876,7 @@ impl SemanticWorkspaceSession {
             workspace,
             module_session: WorkspaceModuleSession::with_external_modules(Arc::clone(&external_modules)),
             external_modules: Some(external_modules),
+            external_seed: None,
             universe_source_provider: provider,
             db: SemanticDb::with_canonical_image(workspace, image),
             store: snapshot.store.clone(),
@@ -926,6 +929,79 @@ impl SemanticWorkspaceSession {
         }
     }
 
+    /// Creates a local workspace over a closed multi-artifact immutable base.
+    ///
+    /// The external seed is an aggregate semantic view only. Query provenance
+    /// remains in the seed's generation catalogue, and `last_snapshot` remains
+    /// reserved for publications produced by this mutable workspace.
+    pub fn from_external_artifact_base(workspace: WorkspaceId, seed: Arc<ExternalSemanticSessionSeed>) -> Self {
+        let provider = phalcom_modules::UniverseSourceProvider::new();
+        let external_modules: Arc<dyn phalcom_modules::ExternalModuleAuthority> = seed.modules().clone();
+        let alias_forms = Arc::new(
+            seed.type_aliases
+                .iter()
+                .map(|(declaration, alias)| (declaration.clone(), alias.form))
+                .collect(),
+        );
+        Self {
+            workspace,
+            module_session: WorkspaceModuleSession::with_external_modules(Arc::clone(&external_modules)),
+            external_modules: Some(external_modules),
+            external_seed: Some(Arc::clone(&seed)),
+            universe_source_provider: provider,
+            db: SemanticDb::with_external_query_catalogue(workspace, Arc::clone(seed.queries())),
+            store: Arc::clone(seed.store()),
+            static_values: Arc::clone(seed.static_values()),
+            base_declarations: (*seed.declarations).clone(),
+            base_hierarchy: (*seed.hierarchy).clone(),
+            base_dispatch: (*seed.dispatch).clone(),
+            base_callable_signatures: (*seed.callable_signatures).clone(),
+            base_data_semantics: (*seed.data_semantics).clone(),
+            base_data_products: Vec::new(),
+            base_enum_semantics: (*seed.enum_semantics).clone(),
+            base_enum_products: Vec::new(),
+            base_associated_surfaces: (*seed.associated_surfaces).clone(),
+            base_associated_surface_products: Vec::new(),
+            base_type_member_declarations: seed
+                .type_member_declarations
+                .iter()
+                .map(|(key, value)| (key.clone(), Arc::clone(value)))
+                .collect(),
+            base_type_member_products: Vec::new(),
+            base_enum_requirements: (*seed.enum_requirements).clone(),
+            base_enum_requirement_products: Vec::new(),
+            sources: BTreeMap::new(),
+            source_fingerprints: BTreeMap::new(),
+            field_lifecycle_fingerprints: BTreeMap::new(),
+            default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable::default(),
+            semantic_structure_shards: BTreeMap::new(),
+            generic_header_dependencies: BTreeMap::new(),
+            generic_header_reverse_dependencies: BTreeMap::new(),
+            declaration_signature_dependencies: BTreeMap::new(),
+            declaration_signature_reverse_dependencies: BTreeMap::new(),
+            declaration_signature_fingerprints: BTreeMap::new(),
+            inherent_impl_surface_owners: BTreeMap::new(),
+            alias_sources: BTreeMap::new(),
+            alias_dependencies: BTreeMap::new(),
+            alias_reverse_dependencies: BTreeMap::new(),
+            alias_contract_dependencies: BTreeMap::new(),
+            alias_contract_reverse_dependencies: BTreeMap::new(),
+            alias_forms,
+            module_diagnostics: BTreeMap::new(),
+            canonical_native_diagnostics: BTreeMap::new(),
+            semantic_diagnostic_contributions: BTreeMap::new(),
+            last_snapshot: None,
+            last_known_good: None,
+            pending_semantic_delta: None,
+            requested_deep_modules: None,
+            product_request: SemanticProductRequest::default(),
+            #[cfg(test)]
+            test_publication_failpoint: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            test_candidate_type_parameter: std::sync::Mutex::new(None),
+        }
+    }
+
     /// Builds a semantic session with an explicit canonical Universe source provider.
     /// Source overrides themselves are only constructible through the modules
     /// crate's test-support feature; normal production construction uses `new`.
@@ -945,6 +1021,7 @@ impl SemanticWorkspaceSession {
             workspace,
             module_session: WorkspaceModuleSession::with_universe_source_provider(baseline.provider.clone()),
             external_modules: None,
+            external_seed: None,
             universe_source_provider: baseline.provider.clone(),
             db,
             store,
@@ -2748,7 +2825,10 @@ impl SemanticWorkspaceSession {
         resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
         // Case identity is structural source authority. Publish it before the
         // alias/header/member signature scheduler reads any annotation.
-        let mut static_case_catalogs = BTreeMap::new();
+        let mut static_case_catalogs = self
+            .external_seed
+            .as_ref()
+            .map_or_else(BTreeMap::new, |seed| seed.static_case_catalogs.iter().map(|(id, product)| (id.clone(), Arc::clone(product))).collect());
         for (module_id, shard) in &self.semantic_structure_shards {
             let mut candidates = BTreeMap::<crate::identity::StaticDomainDeclarationId, Vec<&phalcom_ast::ast::AlgebraicDef>>::new();
             for statement in &shard.source.program.statements {
@@ -2828,31 +2908,50 @@ impl SemanticWorkspaceSession {
         let mut blocked_declarations = BTreeSet::new();
         let mut type_aliases = previous_snapshot
             .as_ref()
-            .map_or_else(TypeAliasTable::new, |snapshot| {
+            .map_or_else(
+                || {
+                    self.external_seed
+                        .as_ref()
+                        .map_or_else(TypeAliasTable::new, |seed| TypeAliasTable::with_parent(Arc::clone(&seed.type_aliases)))
+                },
+                |snapshot| {
                 if previous_snapshot_is_immutable_base {
                     TypeAliasTable::with_parent(snapshot.type_aliases.clone())
                 } else {
                     (*snapshot.type_aliases).clone()
-                }
-            });
+                },
+            );
         let mut static_definitions_table = previous_snapshot
             .as_ref()
-            .map_or_else(StaticDefinitionTable::new, |snapshot| {
+            .map_or_else(
+                || {
+                    self.external_seed
+                        .as_ref()
+                        .map_or_else(StaticDefinitionTable::new, |seed| StaticDefinitionTable::with_parent(Arc::clone(&seed.static_definitions)))
+                },
+                |snapshot| {
                 if previous_snapshot_is_immutable_base {
                     StaticDefinitionTable::with_parent(snapshot.static_definitions.clone())
                 } else {
                     (*snapshot.static_definitions).clone()
-                }
-            });
+                },
+            );
         let mut static_constants_table = previous_snapshot
             .as_ref()
-            .map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
+            .map_or_else(
+                || {
+                    self.external_seed.as_ref().map_or_else(
+                        crate::static_constant::StaticConstantTable::new,
+                        |seed| crate::static_constant::StaticConstantTable::with_parent(Arc::clone(&seed.static_constants)),
+                    )
+                },
+                |snapshot| {
                 if previous_snapshot_is_immutable_base {
                     crate::static_constant::StaticConstantTable::with_parent(snapshot.static_constants.clone())
                 } else {
                     (*snapshot.static_constants).clone()
-                }
-            });
+                },
+            );
         for module in &structural_recomputed_modules {
             static_constants_table.remove_module(module);
         }
@@ -3932,7 +4031,12 @@ impl SemanticWorkspaceSession {
                     (*snapshot.trait_headers).clone()
                 }
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                self.external_seed.as_ref().map_or_else(
+                    crate::traits::TraitHeaderTable::default,
+                    |seed| crate::traits::TraitHeaderTable::with_parent(Arc::clone(&seed.trait_headers)),
+                )
+            });
         // Trait headers are source-owned formal products. A structural
         // replacement or module removal retires every prior trait contract
         // from that module before current source is rebuilt below.
@@ -4016,7 +4120,11 @@ impl SemanticWorkspaceSession {
                     (*snapshot.trait_surfaces).clone()
                 }
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                self.external_seed
+                    .as_ref()
+                    .map_or_else(TraitSurfaceTable::default, |seed| TraitSurfaceTable::with_parent(Arc::clone(&seed.trait_surfaces)))
+            });
         // Recomputed modules must not retain deleted trait surfaces. Retaining
         // one would allow its default-member signatures to be reintroduced
         // after the callable-removal delta has already retired them.
@@ -4368,22 +4476,37 @@ impl SemanticWorkspaceSession {
             });
         let mut callable_definitions = previous_snapshot
             .as_ref()
-            .map_or_else(crate::parent_map::ParentMap::default, |snapshot| {
-                if previous_snapshot_is_immutable_base {
-                    crate::parent_map::ParentMap::with_parent(snapshot.callable_definitions.clone())
-                } else {
-                    (*snapshot.callable_definitions).clone()
-                }
-            });
+            .map_or_else(
+                || {
+                    self.external_seed.as_ref().map_or_else(
+                        crate::parent_map::ParentMap::default,
+                        |seed| crate::parent_map::ParentMap::with_parent(Arc::clone(&seed.callable_definitions)),
+                    )
+                },
+                |snapshot| {
+                    if previous_snapshot_is_immutable_base {
+                        crate::parent_map::ParentMap::with_parent(snapshot.callable_definitions.clone())
+                    } else {
+                        (*snapshot.callable_definitions).clone()
+                    }
+                },
+            );
         let mut field_signatures = previous_snapshot
             .as_ref()
-            .map_or_else(FieldSignatureTable::new, |snapshot| {
-                if previous_snapshot_is_immutable_base {
-                    FieldSignatureTable::with_parent(snapshot.field_signatures.clone())
-                } else {
-                    (*snapshot.field_signatures).clone()
-                }
-            });
+            .map_or_else(
+                || {
+                    self.external_seed
+                        .as_ref()
+                        .map_or_else(FieldSignatureTable::new, |seed| FieldSignatureTable::with_parent(Arc::clone(&seed.field_signatures)))
+                },
+                |snapshot| {
+                    if previous_snapshot_is_immutable_base {
+                        FieldSignatureTable::with_parent(snapshot.field_signatures.clone())
+                    } else {
+                        (*snapshot.field_signatures).clone()
+                    }
+                },
+            );
         for callable in &retired_conformance_witnesses {
             callable_definitions.remove(callable);
             callable_signatures.remove(callable);
@@ -4821,13 +4944,21 @@ impl SemanticWorkspaceSession {
         // each affected module from its retained source shard and canonical
         // field/callable signatures; neither the source index nor compiler
         // attribute expansion owns these identities.
-        let mut constructor_initializations = previous_snapshot.as_ref().map_or_else(ConstructorInitializationTable::default, |snapshot| {
-            if previous_snapshot_is_immutable_base {
-                ConstructorInitializationTable::with_parent(snapshot.constructor_initializations.clone())
-            } else {
-                (*snapshot.constructor_initializations).clone()
-            }
-        });
+        let mut constructor_initializations = previous_snapshot.as_ref().map_or_else(
+            || {
+                self.external_seed.as_ref().map_or_else(
+                    ConstructorInitializationTable::default,
+                    |seed| ConstructorInitializationTable::with_parent(Arc::clone(&seed.constructor_initializations)),
+                )
+            },
+            |snapshot| {
+                if previous_snapshot_is_immutable_base {
+                    ConstructorInitializationTable::with_parent(snapshot.constructor_initializations.clone())
+                } else {
+                    (*snapshot.constructor_initializations).clone()
+                }
+            },
+        );
         let mut constructor_product_work_modules = formal_declaration_modules
             .iter()
             .cloned()
@@ -5085,9 +5216,14 @@ impl SemanticWorkspaceSession {
                     (*snapshot.enum_requirements).clone()
                 }
             });
-        let mut associated_static_domains_table = previous_snapshot.as_ref().map_or_else(crate::ordered_map::OrderedMap::default, |snapshot| {
-            (*snapshot.associated_static_domains).clone()
-        });
+        let mut associated_static_domains_table = previous_snapshot.as_ref().map_or_else(
+            || {
+                self.external_seed
+                    .as_ref()
+                    .map_or_else(crate::ordered_map::OrderedMap::default, |seed| (*seed.associated_static_domains).clone())
+            },
+            |snapshot| (*snapshot.associated_static_domains).clone(),
+        );
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
@@ -5216,7 +5352,12 @@ impl SemanticWorkspaceSession {
                     (*snapshot.conformance_index).clone()
                 }
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                self.external_seed.as_ref().map_or_else(
+                    crate::impls::ConformanceIndex::default,
+                    |seed| crate::impls::ConformanceIndex::with_parent(Arc::clone(&seed.conformance_index)),
+                )
+            });
         let mut conformance_witness_plans = previous_snapshot
             .as_ref()
             .map(|snapshot| {
@@ -5226,7 +5367,12 @@ impl SemanticWorkspaceSession {
                     (*snapshot.conformance_witness_plans).clone()
                 }
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                self.external_seed.as_ref().map_or_else(
+                    crate::impls::ConformanceWitnessPlans::default,
+                    |seed| crate::impls::ConformanceWitnessPlans::with_parent(Arc::clone(&seed.conformance_witness_plans)),
+                )
+            });
         let previous_conformance_plan_fingerprints = conformance_witness_plans
             .iter()
             .map(|(impl_id, plan)| (impl_id.clone(), plan.fingerprint))
@@ -5245,7 +5391,12 @@ impl SemanticWorkspaceSession {
                     (*snapshot.derived_conformance_rules).clone()
                 }
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                self.external_seed.as_ref().map_or_else(
+                    crate::derived_conformance::DerivedConformanceRuleIndex::default,
+                    |seed| crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(Arc::clone(&seed.derived_conformance_rules)),
+                )
+            });
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             conformance_index.remove_source(module);
             conformance_witness_plans.retain(|impl_id, _| &impl_id.module != module);
