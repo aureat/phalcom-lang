@@ -2218,6 +2218,63 @@ mod tests {
     }
 
     #[test]
+    fn external_query_catalogue_rejects_conflicting_dependency_evidence() {
+        let image = canonical_universe_formal_image().unwrap().clone();
+        let dependency = image.query_image().entries().next().unwrap().0.clone();
+        let mut allocations = AllocationBudget::new(32 * 1024 * 1024);
+
+        let make_empty_query_image = |allocations: &mut AllocationBudget| {
+            let entries = CanonicalQueryEntries::Source(BTreeMap::new());
+            Arc::new(
+                CanonicalSemanticQueryImage::from_loaded_artifact_entries(
+                    image.world().clone(),
+                    entries,
+                    Arc::clone(&image.snapshot().store),
+                    Arc::clone(&image.snapshot().static_values),
+                    allocations,
+                )
+                .unwrap(),
+            )
+        };
+        let first_queries = make_empty_query_image(&mut allocations);
+        let second_queries = make_empty_query_image(&mut allocations);
+
+        let first = ExternalSemanticQueryGeneration::from_validated_parts_with_allocation_budget(
+            image.world(),
+            Arc::clone(image.snapshot()),
+            first_queries,
+            Arc::new(CanonicalDependencyFingerprints::Source(BTreeMap::from([(
+                dependency.clone(),
+                ProductFingerprint(1),
+            )]))),
+            image.snapshot().store.as_ref(),
+            image.snapshot().static_values.as_ref(),
+            &mut allocations,
+        )
+        .unwrap();
+        let second = ExternalSemanticQueryGeneration::from_validated_parts_with_allocation_budget(
+            image.world(),
+            Arc::clone(image.snapshot()),
+            second_queries,
+            Arc::new(CanonicalDependencyFingerprints::Source(BTreeMap::from([(
+                dependency,
+                ProductFingerprint(2),
+            )]))),
+            image.snapshot().store.as_ref(),
+            image.snapshot().static_values.as_ref(),
+            &mut allocations,
+        )
+        .unwrap();
+
+        let error = ExternalSemanticQueryCatalogue::from_generations_with_allocation_budget(
+            vec![first, second],
+            &mut allocations,
+        )
+        .expect_err("conflicting immutable dependency evidence must fail closed");
+        assert!(error.to_string().contains("disagree on dependency fingerprint"));
+    }
+
+    #[test]
     fn canonical_image_database_reads_are_immutable_leaves_across_local_rollback() {
         let image = canonical_universe_formal_image().unwrap().clone();
         let (key, entry) = image.query_image().entries().next().unwrap();
