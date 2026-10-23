@@ -2190,29 +2190,28 @@ impl TypeStore {
         }
 
         let family = FamilyType::new(deduped.into_boxed_slice());
-        let family_id = if let Some(frozen) = &self.frozen {
-            if let Some(id) = frozen.find_family(&family) {
-                id
-            } else if let Some(&id) = self.family_interner.get(&family) {
-                id
-            } else {
-                let id = FamilyTypeId::new((frozen.family_arena.len() + self.family_arena.len()) as u32);
-                self.family_arena.push_back(family.clone());
-                self.family_interner.insert(family, id);
-                self.record_post_fork_mutation(TypeStoreMutationCategory::Family);
-                id
-            }
-        } else if let Some(&id) = self.family_interner.get(&family) {
-            id
-        } else {
-            let id = FamilyTypeId::new(self.family_arena.len() as u32);
-            self.family_arena.push_back(family.clone());
-            self.family_interner.insert(family, id);
-            self.record_post_fork_mutation(TypeStoreMutationCategory::Family);
-            id
-        };
-
+        let family_id = self.intern_family_data(family);
         Ok(self.intern_with_kind(TypeData::Family(family_id), KindId::TYPE))
+    }
+
+    /// Interns a fully validated family node without also allocating its
+    /// TypeData::Family wrapper. Artifact relocation needs the compact family
+    /// identity before it imports the corresponding type node.
+    pub(crate) fn intern_family_data(&mut self, family: FamilyType) -> FamilyTypeId {
+        if let Some(frozen) = &self.frozen {
+            if let Some(id) = frozen.find_family(&family) {
+                return id;
+            }
+        }
+        if let Some(&id) = self.family_interner.get(&family) {
+            return id;
+        }
+        let frozen_len = self.frozen.as_ref().map_or(0, |f| f.family_arena.len());
+        let id = FamilyTypeId::new((frozen_len + self.family_arena.len()) as u32);
+        self.family_arena.push_back(family.clone());
+        self.family_interner.insert(family, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::Family);
+        id
     }
 
     #[inline]
