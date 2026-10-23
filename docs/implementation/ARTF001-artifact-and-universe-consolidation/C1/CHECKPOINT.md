@@ -36,9 +36,9 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 
 ## General artifact compilation continuation (2026-10-23)
 
-Detailed slice contracts remain in `docs/implementation-spec/artifact-compilation/`. Slice E is implemented and focused-tested: core now holds `ModuleWorldV5` above the decoder while the Universe builder retains V4 wire bytes. `RUSTFLAGS='' cargo check -p phalcom-core --lib --test core` and `RUSTFLAGS='' cargo test -p phalcom-core --lib --no-run` passed. The inherited core target failures remain recorded in that spec's `baseline-failures.md`.
+Detailed slice contracts remain in `docs/implementation-spec/artifact-compilation/`. Slice E is implemented and focused-tested: core holds `ModuleWorldV5` above the decoder while the Universe builder retains V4 wire bytes; the compatibility semantic importer lifts decoded V2 module worlds once before calling V5 loaders. `RUSTFLAGS='' cargo check -p phalcom-core --lib --test core`, `RUSTFLAGS='' cargo test -p phalcom-core --lib --no-run`, and the focused semantic identity test passed. The inherited core target failures remain recorded in that spec's `baseline-failures.md`.
 
-Slice F1 is active and unverified. Its next gate is EXP-T1…T4 plus the per-section VER-R1 digest check; the package identity context, fingerprint, and path-free source digest are in scope. F2 remains unstarted.
+Slice F1 is active. EXP-T1 has a focused passing regression; publishing identity context, fingerprint, path-free source digest, package-owned projection coverage, and the per-section VER-R1 digest check remain. F2 remains unstarted.
 
 ## Starting Baseline & Provenance
 

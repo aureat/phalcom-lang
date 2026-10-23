@@ -409,6 +409,7 @@ impl<'a> ArtifactImportTransaction<'a> {
         validated_artifact_digest: Option<ArtifactDigest>,
     ) -> Result<&mut Self, ArtifactError> {
         payload.validate_cross_section(&self.limits)?;
+        let module_world = phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(payload.module_world.clone());
 
         let child = self
             .child_ledger
@@ -417,11 +418,10 @@ impl<'a> ArtifactImportTransaction<'a> {
 
         // 1. Resolve and stage exact project authority, then reconstruct the module world.
         let external = if let Some(projects) = self.project_catalog.as_ref() {
-            let package_refs_present = payload
-                .module_world
+            let package_refs_present = module_world
                 .external_projects
                 .iter()
-                .chain(payload.module_world.modules.iter().map(|module| &module.identity.project))
+                .chain(module_world.modules.iter().map(|module| &module.identity.project))
                 .any(|project| matches!(project, phalcom_type_meta::identity::StableProjectRef::Package { .. }));
             if package_refs_present && validated_artifact_digest.is_none() {
                 return Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(
@@ -435,25 +435,24 @@ impl<'a> ArtifactImportTransaction<'a> {
             })?;
             let project_universe = stage_artifact_project_authorities(
                 projects,
-                &payload.module_world,
+                &module_world,
                 &payload.header.package_identity,
                 validated_artifact_digest.unwrap_or(ArtifactDigest::ZERO),
                 resolver,
             )?;
-            load_module_world_with_project_catalog_and_allocation_budget(&payload.module_world, &self.limits, child, project_universe)?
+            load_module_world_with_project_catalog_and_allocation_budget(&module_world, &self.limits, child, project_universe)?
         } else {
-            let package_refs_present = payload
-                .module_world
+            let package_refs_present = module_world
                 .external_projects
                 .iter()
-                .chain(payload.module_world.modules.iter().map(|module| &module.identity.project))
+                .chain(module_world.modules.iter().map(|module| &module.identity.project))
                 .any(|project| matches!(project, phalcom_type_meta::identity::StableProjectRef::Package { .. }));
             if package_refs_present {
                 return Err(ArtifactError::Validation(ValidationError::ReferentialIntegrity(
                     "package project authority requires a caller-supplied project catalog and trusted resolver".into(),
                 )));
             }
-            load_module_world_with_allocation_budget(&payload.module_world, &self.limits, child)?
+            load_module_world_with_allocation_budget(&module_world, &self.limits, child)?
         };
         self.staged_module_world = Some(child.arc(external).map_err(ArtifactError::Allocation)?);
         self.project_catalog = Some(self.staged_module_world.as_ref().expect("staged above").linked().universe.clone());
@@ -482,7 +481,6 @@ impl<'a> ArtifactImportTransaction<'a> {
             .project_catalog
             .as_deref()
             .ok_or_else(|| ArtifactError::Validation(ValidationError::ReferentialIntegrity("no staged project catalog".into())))?;
-        let module_world = phalcom_compiler_artifact::module_world_v5::ModuleWorldV5::from(payload.module_world.clone());
         let owners = identity::StableOwnerCatalog::new(&module_world, projects)?;
         query_import::validate_query_owner_authority(&payload.query_image, &owners)?;
         query_import::validate_structural_root_row_ownership(&payload.query_image, &payload.semantic_world)?;
