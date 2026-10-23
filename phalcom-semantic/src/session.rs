@@ -177,6 +177,27 @@ fn attach_immutable_module_authority(
     resolver
 }
 
+fn snapshot_is_immutable_authority(db: &SemanticDb, snapshot: &Arc<SemanticSnapshot>) -> bool {
+    db.immutable_query_authority()
+        .is_some_and(|authority| authority.snapshots().any(|candidate| Arc::ptr_eq(snapshot, candidate)))
+}
+
+fn immutable_module_static_bindings(
+    db: &SemanticDb,
+) -> crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>> {
+    let mut bindings = crate::parent_map::ParentMap::default();
+    let Some(authority) = db.immutable_query_authority() else {
+        return bindings;
+    };
+    for snapshot in authority.snapshots() {
+        for (module, index) in snapshot.module_static_bindings.iter() {
+            let previous = bindings.insert(module.clone(), Arc::clone(index));
+            assert!(previous.is_none(), "immutable semantic generations overlap module static-binding ownership: {module}");
+        }
+    }
+    bindings
+}
+
 /// Performance and recomputation metrics for one semantic workspace update.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticUpdateStats {
@@ -1313,11 +1334,8 @@ impl SemanticWorkspaceSession {
         let mut invalidated_keys = BTreeSet::new();
         let mut callable_dispositions = BTreeMap::new();
         let previous_snapshot = self.last_snapshot.clone();
-        let previous_snapshot_is_canonical_image = previous_snapshot.as_ref().is_some_and(|snapshot| {
-            self.db
-                .canonical_image()
-                .is_some_and(|image| Arc::ptr_eq(snapshot, image.snapshot()))
-        });
+        let previous_snapshot_is_immutable_base =
+            previous_snapshot.as_ref().is_some_and(|snapshot| snapshot_is_immutable_authority(&self.db, snapshot));
         let previous_field_lifecycle_fingerprints = self.field_lifecycle_fingerprints.clone();
         let previous_module_diagnostics = self.module_diagnostics.clone();
         let current_module_diagnostics = input.diagnostics.clone();
@@ -2347,7 +2365,9 @@ impl SemanticWorkspaceSession {
         if !removed_modules.is_empty() {
             for module in &removed_modules {
                 alias_sources.retain(|declaration, _| &declaration.module != module);
-                if module.project.is_universe() && self.db.canonical_image().is_some() {
+                if self.external_modules.as_ref().is_some_and(|external| external.contains(module))
+                    || (module.project.is_universe() && self.db.canonical_image().is_some())
+                {
                     continue;
                 }
                 let Ok(source) = self.universe_source_provider.load_parsed(module) else {
@@ -2669,7 +2689,7 @@ impl SemanticWorkspaceSession {
         let mut associated_surfaces_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     AssociatedFamilyTable::with_parent(snapshot.associated_surfaces.clone())
                 } else {
                     (*snapshot.associated_surfaces).clone()
@@ -2683,7 +2703,7 @@ impl SemanticWorkspaceSession {
                     .collect()
             },
             |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     crate::parent_map::ParentMap::with_parent(snapshot.type_member_declarations.clone())
                 } else {
                     (*snapshot.type_member_declarations).clone()
@@ -2809,7 +2829,7 @@ impl SemanticWorkspaceSession {
         let mut type_aliases = previous_snapshot
             .as_ref()
             .map_or_else(TypeAliasTable::new, |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     TypeAliasTable::with_parent(snapshot.type_aliases.clone())
                 } else {
                     (*snapshot.type_aliases).clone()
@@ -2818,7 +2838,7 @@ impl SemanticWorkspaceSession {
         let mut static_definitions_table = previous_snapshot
             .as_ref()
             .map_or_else(StaticDefinitionTable::new, |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     StaticDefinitionTable::with_parent(snapshot.static_definitions.clone())
                 } else {
                     (*snapshot.static_definitions).clone()
@@ -2827,7 +2847,7 @@ impl SemanticWorkspaceSession {
         let mut static_constants_table = previous_snapshot
             .as_ref()
             .map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     crate::static_constant::StaticConstantTable::with_parent(snapshot.static_constants.clone())
                 } else {
                     (*snapshot.static_constants).clone()
@@ -3906,7 +3926,7 @@ impl SemanticWorkspaceSession {
         let mut trait_headers = previous_snapshot
             .as_ref()
             .map(|snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     crate::traits::TraitHeaderTable::with_parent(snapshot.trait_headers.clone())
                 } else {
                     (*snapshot.trait_headers).clone()
@@ -3990,7 +4010,7 @@ impl SemanticWorkspaceSession {
         let mut trait_surfaces = previous_snapshot
             .as_ref()
             .map(|snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     TraitSurfaceTable::with_parent(snapshot.trait_surfaces.clone())
                 } else {
                     (*snapshot.trait_surfaces).clone()
@@ -4331,11 +4351,7 @@ impl SemanticWorkspaceSession {
         let mut dispatch = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_dispatch.clone(), |snapshot| {
-                if self
-                    .db
-                    .canonical_image()
-                    .is_some_and(|image| Arc::ptr_eq(&snapshot.dispatch, &image.snapshot().dispatch))
-                {
+                if previous_snapshot_is_immutable_base {
                     SurfaceDispatchResolver::with_parent(snapshot.dispatch.clone())
                 } else {
                     (*snapshot.dispatch).clone()
@@ -4344,7 +4360,7 @@ impl SemanticWorkspaceSession {
         let mut callable_signatures = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     CallableSignatureTable::with_parent(snapshot.callable_signatures.clone())
                 } else {
                     (*snapshot.callable_signatures).clone()
@@ -4353,7 +4369,7 @@ impl SemanticWorkspaceSession {
         let mut callable_definitions = previous_snapshot
             .as_ref()
             .map_or_else(crate::parent_map::ParentMap::default, |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     crate::parent_map::ParentMap::with_parent(snapshot.callable_definitions.clone())
                 } else {
                     (*snapshot.callable_definitions).clone()
@@ -4362,7 +4378,7 @@ impl SemanticWorkspaceSession {
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(FieldSignatureTable::new, |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     FieldSignatureTable::with_parent(snapshot.field_signatures.clone())
                 } else {
                     (*snapshot.field_signatures).clone()
@@ -4806,7 +4822,7 @@ impl SemanticWorkspaceSession {
         // field/callable signatures; neither the source index nor compiler
         // attribute expansion owns these identities.
         let mut constructor_initializations = previous_snapshot.as_ref().map_or_else(ConstructorInitializationTable::default, |snapshot| {
-            if previous_snapshot_is_canonical_image {
+            if previous_snapshot_is_immutable_base {
                 ConstructorInitializationTable::with_parent(snapshot.constructor_initializations.clone())
             } else {
                 (*snapshot.constructor_initializations).clone()
@@ -5045,7 +5061,7 @@ impl SemanticWorkspaceSession {
         let mut data_semantics = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_data_semantics.clone(), |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     DataSemanticTable::with_parent(snapshot.data_semantics.clone())
                 } else {
                     (*snapshot.data_semantics).clone()
@@ -5054,7 +5070,7 @@ impl SemanticWorkspaceSession {
         let mut enum_semantics = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_enum_semantics.clone(), |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     EnumSemanticTable::with_parent(snapshot.enum_semantics.clone())
                 } else {
                     (*snapshot.enum_semantics).clone()
@@ -5063,7 +5079,7 @@ impl SemanticWorkspaceSession {
         let mut enum_requirements_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     EnumRequirementTable::with_parent(snapshot.enum_requirements.clone())
                 } else {
                     (*snapshot.enum_requirements).clone()
@@ -5194,11 +5210,7 @@ impl SemanticWorkspaceSession {
         let mut conformance_index = previous_snapshot
             .as_ref()
             .map(|snapshot| {
-                if self
-                    .db
-                    .canonical_image()
-                    .is_some_and(|image| Arc::ptr_eq(&snapshot.conformance_index, &image.snapshot().conformance_index))
-                {
+                if previous_snapshot_is_immutable_base {
                     crate::impls::ConformanceIndex::with_parent(snapshot.conformance_index.clone())
                 } else {
                     (*snapshot.conformance_index).clone()
@@ -5208,7 +5220,7 @@ impl SemanticWorkspaceSession {
         let mut conformance_witness_plans = previous_snapshot
             .as_ref()
             .map(|snapshot| {
-                if previous_snapshot_is_canonical_image {
+                if previous_snapshot_is_immutable_base {
                     crate::impls::ConformanceWitnessPlans::with_parent(snapshot.conformance_witness_plans.clone())
                 } else {
                     (*snapshot.conformance_witness_plans).clone()
@@ -5227,11 +5239,7 @@ impl SemanticWorkspaceSession {
         let mut derived_conformance_rules = previous_snapshot
             .as_ref()
             .map(|snapshot| {
-                if self
-                    .db
-                    .canonical_image()
-                    .is_some_and(|image| Arc::ptr_eq(&snapshot.derived_conformance_rules, &image.snapshot().derived_conformance_rules))
-                {
+                if previous_snapshot_is_immutable_base {
                     crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(snapshot.derived_conformance_rules.clone())
                 } else {
                     (*snapshot.derived_conformance_rules).clone()
@@ -7705,9 +7713,7 @@ impl SemanticWorkspaceSession {
         // The first ordinary pass establishes local module binding facts. Seed
         // a second pass from those canonical facts so imported values retain
         // their exact structural type and denotation during normal checking.
-        let mut module_static_bindings = self.db.canonical_image().map_or_else(crate::parent_map::ParentMap::default, |image| {
-            crate::parent_map::ParentMap::with_parent(image.snapshot().module_static_bindings.clone())
-        });
+        let mut module_static_bindings = immutable_module_static_bindings(&self.db);
         for (module_id, shard) in &self.semantic_structure_shards {
             let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
             let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
@@ -8038,8 +8044,8 @@ impl SemanticWorkspaceSession {
             sources: &input.sources,
             universe_source_provider: &self.universe_source_provider,
             include_workspace_source_semantics: self.product_request.source_semantics != SourceSemanticLevel::None,
-            include_canonical_source_semantics: self.product_request.source_semantics == SourceSemanticLevel::Full && self.db.canonical_image().is_none(),
-            include_canonical_presentation_sources: self.product_request.presentation == PresentationLevel::Full && self.db.canonical_image().is_none(),
+            include_canonical_source_semantics: self.product_request.source_semantics == SourceSemanticLevel::Full && self.db.immutable_query_authority().is_none(),
+            include_canonical_presentation_sources: self.product_request.presentation == PresentationLevel::Full && self.db.immutable_query_authority().is_none(),
             callable_analyses: &callable_analyses,
             callable_signatures: &callable_signatures,
             import_products: &input.import_products,
@@ -8246,9 +8252,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        module_static_bindings = self.db.canonical_image().map_or_else(crate::parent_map::ParentMap::default, |image| {
-            crate::parent_map::ParentMap::with_parent(image.snapshot().module_static_bindings.clone())
-        });
+        module_static_bindings = immutable_module_static_bindings(&self.db);
         for (module_id, shard) in &self.semantic_structure_shards {
             let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
             let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
