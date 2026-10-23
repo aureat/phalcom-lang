@@ -3304,9 +3304,9 @@ impl TypeStore {
         for parameter in import_parameters.iter().filter_map(|value| *value) {
             let parameter = candidate.type_parameter(parameter);
             if current_parameters
-                .binary_search_by(|candidate| {
-                    let candidate = candidate.type_parameter(*candidate);
-                    (&candidate.owner, candidate.index).cmp(&(&parameter.owner, parameter.index))
+                .binary_search_by(|parameter_id| {
+                    let current = candidate.type_parameter(*parameter_id);
+                    (&current.owner, current.index).cmp(&(&parameter.owner, parameter.index))
                 })
                 .is_err()
             {
