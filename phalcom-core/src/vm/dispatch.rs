@@ -1857,7 +1857,7 @@ impl VM {
             .and_then(|pool| pool.bundle.callables.get(call_ref.record.0 as usize))
             .ok_or_else(|| RuntimeError::Internal("specialized call metadata reference is unavailable".into()))?;
         if actual.callable != recipe.callable {
-            return Err(RuntimeError::Internal("specialized call canonical callable identity mismatch".into()));
+            return Err(RuntimeError::Internal(format!("specialized call canonical callable identity mismatch: metadata {:?} vs recipe {:?}", actual.callable, recipe.callable)));
         }
         Ok(())
     }

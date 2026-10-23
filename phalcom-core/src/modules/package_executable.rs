@@ -67,9 +67,14 @@ pub fn build_full_package_telosc(
     let image = PackageCompilerImage::capture_from_universe(project_root, universe, limits).map_err(executable_error)?;
     let compiler = build_package_telosc(&image, limits)?;
 
-    let compiled = universe
-        .compile_user_entry(EntrySelection::Project(project_root.to_path_buf()))
-        .map_err(executable_error)?;
+    // Lowering bakes stable callable identities into bytecode recipes, so
+    // compilation itself must already export the package's published identity.
+    let compiled = {
+        let _identity = ArtifactIdentityScope::enter(image.projects.as_ref(), Some((image.project, compiler.identity.clone())));
+        universe
+            .compile_user_entry(EntrySelection::Project(project_root.to_path_buf()))
+            .map_err(executable_error)?
+    };
     let project = match &compiled.entry.project {
         phalcom_modules::ProjectIdentity::Resolved(project) => *project,
         _ => return Err(TeloscArtifactError::Capability("package executable entry is not a resolved package project")),
@@ -166,6 +171,7 @@ pub struct LoadedPackageArtifact {
     /// Native project allocated for the package in the composed catalog.
     pub project: ResolvedProjectId,
     base: Arc<ComposedArtifactSemanticBase>,
+    metadata: Arc<phalcom_type_meta::SemanticMetadataBundle>,
     executable: Option<ValidatedExecutableImage>,
 }
 
@@ -235,6 +241,19 @@ pub fn load_package_telosc_from_bytes(
     .map_err(executable_error)?;
 
     let container = TeloscContainerView::parse(bytes, limits)?;
+    let metadata = {
+        use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
+        let payload = container.require_section(SectionKind::Metadata).map_err(phalcom_compiler_artifact::ArtifactError::from)?;
+        let section = MetadataSectionV1::decode_with_allocation_budget(payload, limits, &mut budget)?;
+        let preflight = MetadataPreflightLimits {
+            max_metadata_bytes: usize::try_from(limits.max_metadata_bytes).unwrap_or(usize::MAX),
+            max_token_count: u32::try_from(limits.max_semantic_entries_per_family).unwrap_or(u32::MAX),
+            max_container_count: u32::try_from(limits.max_semantic_entries_per_family).unwrap_or(u32::MAX),
+            max_nesting_depth: u16::try_from(limits.max_recursion_depth).unwrap_or(u16::MAX),
+        };
+        let digest = *container.header().package_identity.digest().as_bytes();
+        Arc::new(section.decode_bundle_with_allocation_budget(&preflight, &phalcom_type_meta::ValidationLimits::default(), &digest, &mut budget)?)
+    };
     let executable = if container.header().capabilities.contains(HeaderCapabilities::PORTABLE_EXECUTABLE) {
         let payload = container.require_section(SectionKind::Executable).map_err(phalcom_compiler_artifact::ArtifactError::from)?;
         let executable_limits = ExecutableImageLimitsV1::default();
@@ -247,6 +266,7 @@ pub fn load_package_telosc_from_bytes(
         identity,
         project,
         base: Arc::new(base),
+        metadata,
         executable,
     })
 }
@@ -289,7 +309,7 @@ impl LoadedPackageArtifact {
                 .collect::<std::collections::BTreeMap<ModuleId, CompiledModule>>(),
             entry: linked.entry.clone(),
             initialization_order: linked.initialization_order.clone(),
-            semantic_metadata: None,
+            semantic_metadata: Some(Arc::clone(&self.metadata)),
         };
         let _identity = ArtifactIdentityScope::enter(self.base.projects().as_ref(), Some((self.project, self.identity.clone())));
         vm.materialize_program(&program)?;
