@@ -5,15 +5,15 @@ class OffBehavior {
 
   /// Raises an error when the feature flag is disabled.
   @class
-  raise -> OffBehavior { OffBehavior.new("raise", None) }
+  raise -> OffBehavior { OffBehavior.new("raise", Option<Dynamic>::None) }
 
   /// Falls back to invoking an alternative selector when disabled.
   @class
-  fallback(_ sel: Symbol) -> OffBehavior { OffBehavior.new("fallback", Some(sel)) }
+  fallback(_ sel: Symbol) -> OffBehavior { OffBehavior.new("fallback", Option<Symbol>::Some(sel)) }
 
   /// Skips execution and returns a default value when disabled.
   @class
-  skip(_ value: Dynamic) -> OffBehavior { OffBehavior.new("skip", Some(value)) }
+  skip(_ value: Dynamic) -> OffBehavior { OffBehavior.new("skip", Option<Dynamic>::Some(value)) }
 
   @constructor
   new(_ kind: String, _ payload: Dynamic) {
