@@ -40,9 +40,9 @@ Detailed slice contracts remain in `docs/implementation-spec/artifact-compilatio
 
 Slice F1 is complete and focused-tested at `6513f9467` (implementation `72c73cfe0`, followed by helper formatting). Publishing identity now reaches semantic, query, type, and static-value export; package fingerprints and path-free source digests are implemented. EXP-T1, EXP-T2, EXP-T3, and VER-R1 passed. The three stable per-section digests match `baseline-digests.md`; metadata remains process-nondeterministic as recorded in `incident-metadata-nondeterminism.md`. See `ARTF001.C1.F1-walkthrough.md` for exact evidence.
 
-Active slice: F2, scoped package compiler-image capture. Preserve the F2 handoff rules in `ARTF001.C1.F1-handoff.md` and `docs/implementation-spec/artifact-compilation/05-spec-package-builder.md` §1–2. In particular, external dependency fingerprints come only from the immutable base published catalogue; capture must occur while the semantic session/database is alive.
+Active slice: F3, package module-world projection and builder. Preserve the F3 handoff rules in `ARTF001.C1.F2-handoff.md` and `docs/implementation-spec/artifact-compilation/05-spec-package-builder.md` §3–4. Use the retained base provenance and package-scoped products; do not begin package importer/loader changes before G.
 
-F2 is implemented and focused-tested. Package capture reuses dependency
+F2 is implemented and focused-tested in commit `93cc9f2fc`. Package capture reuses dependency
 discovery and linking, keeps the semantic session alive through scoped query
 freezing, and rejects owned diagnostics plus Failed/Blocked query products. A
 source-provider boundary denies filesystem lookup for projects outside the
