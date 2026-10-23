@@ -1499,3 +1499,35 @@ fn reconstruct_query_image_inner(
     record_census_phase(5, publication_start, allocations);
     Ok((query_image, fingerprints))
 }
+
+#[cfg(test)]
+mod query_owner_catalog_regressions {
+    use super::*;
+    use crate::artifact::identity::{StableOwnerCatalog, empty_owner_inputs};
+    use phalcom_type_meta::identity::StableProjectRef;
+
+    #[test]
+    fn current_query_owner_rejects_missing_catalog_authority_without_fallback() {
+        let (mut wire, projects) = empty_owner_inputs();
+        let module = StableModuleRef {
+            project: StableProjectRef::Builtin { namespace: "universe".into(), version: "0.1.0".into() },
+            path: Box::new([]),
+        };
+        let key = PortableQueryKeyV1 {
+            kind: PortableQueryKindV1::LinkedInterface,
+            owner: PortableQueryOwnerKeyV1::Module(module.clone()),
+        };
+        let mut allocations = AllocationBudget::new(64 * 1024);
+        let catalog = StableOwnerCatalog::new(&wire, &projects).unwrap();
+        assert!(resolve_query_key_v3(&key, &mut allocations, Some(&catalog)).is_err());
+        assert!(matches!(
+            resolve_query_key_v3(&key, &mut allocations, None),
+            Ok(QueryKey::LinkedInterface(_))
+        ));
+
+        wire.external_projects.push(module.project.clone());
+        let catalog = StableOwnerCatalog::new(&wire, &projects).unwrap();
+        let owner = resolve_query_key_v3(&key, &mut allocations, Some(&catalog)).unwrap();
+        assert!(matches!(owner, QueryKey::LinkedInterface(id) if id.project == phalcom_modules::ProjectIdentity::Universe));
+    }
+}
