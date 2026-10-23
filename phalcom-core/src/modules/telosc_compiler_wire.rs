@@ -186,9 +186,10 @@ impl StagedTeloscCompilerWire {
                 "composed artifact base requires source-free loaded Universe artifact authority",
             ));
         }
+        let projects = Arc::clone(universe.modules().projects());
         Self::compose_artifact_semantic_base_impl(
             artifacts,
-            universe.modules().projects().as_ref(),
+            projects.as_ref(),
             Some(universe),
             resolver,
             limits,
