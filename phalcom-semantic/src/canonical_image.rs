@@ -625,6 +625,19 @@ impl CanonicalDependencyFingerprints {
         self.iter().map(|(key, _)| key)
     }
 
+    /// Copies exact dependency evidence into an independently owned frozen
+    /// representation under the caller's allocation transaction.
+    pub fn clone_with_allocation_budget(
+        &self,
+        allocations: &mut AllocationBudget,
+    ) -> Result<Self, CanonicalImageError> {
+        let mut values = allocations.vector::<(QueryKey, ProductFingerprint)>(self.iter().count())?;
+        for (key, fingerprint) in self.iter() {
+            values.push((key.clone_with_allocation_budget(allocations)?, *fingerprint));
+        }
+        Self::from_loaded_entries(values, allocations)
+    }
+
     pub(crate) fn from_loaded_entries(
         mut values: Vec<(QueryKey, ProductFingerprint)>,
         allocations: &mut AllocationBudget,
