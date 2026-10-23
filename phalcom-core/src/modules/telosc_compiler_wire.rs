@@ -31,10 +31,10 @@ use phalcom_semantic::types::store::TypeStore;
 use std::sync::Arc;
 
 /// A single privately imported package generation. This is deliberately not
-/// a workspace-publishable external base: independent instances still have
-/// different TypeStore/StaticValueStore lineages. A composed external base
-/// must relocate all dependencies into one receiving generation before
-/// exposing any of these products to a SemanticWorkspaceSession.
+/// a workspace-publishable external base on its own. It may have been imported
+/// into shared receiving stores, but only the composed-base publication barrier
+/// proves all package generations, module owners and query images compatible
+/// with the final native generation.
 pub(crate) struct StagedPackageSemanticGeneration {
     pub world: CanonicalSemanticWorldId,
     pub modules: Arc<CanonicalExternalModuleWorld>,
@@ -508,6 +508,17 @@ impl StagedTeloscCompilerWire {
 mod staging_transaction_tests {
     use super::*;
 
+    struct NoPackageReceipts;
+
+    impl TrustedPackageResolver for NoPackageReceipts {
+        fn package_authority_receipt(
+            &self,
+            _: &phalcom_type_meta::identity::StableProjectRef,
+        ) -> Option<phalcom_modules::ValidatedPackageAuthorityReceipt> {
+            None
+        }
+    }
+
     #[test]
     fn rejected_container_can_be_retried_without_spending_load_budget() {
         let mut allocations = AllocationBudget::new(1024 * 1024);
@@ -526,5 +537,26 @@ mod staging_transaction_tests {
         let limits = ValidationLimits::default();
         let order = StagedTeloscCompilerWire::package_import_order(&[], &limits, &mut allocations).unwrap();
         assert!(order.is_empty());
+    }
+
+    #[test]
+    fn empty_package_set_publishes_one_closed_empty_shared_generation() {
+        let projects = ProjectUniverse::new();
+        let limits = ValidationLimits::default();
+        let mut allocations = AllocationBudget::new(64 * 1024);
+        let base = StagedTeloscCompilerWire::compose_package_semantic_base(
+            Vec::new(),
+            &projects,
+            &NoPackageReceipts,
+            &limits,
+            &mut allocations,
+        )
+        .unwrap();
+
+        assert!(base.generations().is_empty());
+        assert!(base.projects().preserves_authority_of(&projects));
+        assert!(projects.preserves_authority_of(base.projects()));
+        assert_eq!(base.type_store().id(), base.type_store().id());
+        assert_eq!(base.static_values().id(), base.static_values().id());
     }
 }
