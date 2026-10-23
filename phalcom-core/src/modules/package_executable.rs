@@ -270,11 +270,19 @@ fn admit_package_set(blobs: &[Vec<u8>], universe: &LoadedUniverseArtifact, limit
     }
     let mut budget = total_budget(limits);
     let mut projects: ProjectUniverse = universe.formal_image.modules().projects().as_ref().clone();
+    let decoded_wires = blobs
+        .iter()
+        .map(|bytes| StagedTeloscCompilerWire::decode(bytes, limits, &mut budget).map_err(executable_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    let order = admission_order(&decoded_wires)?;
+    let publishing_index = order.iter().position(|index| *index + 1 == blobs.len());
+    let blobs = order.iter().map(|index| &blobs[*index]).collect::<Vec<_>>();
+    let mut decoded_wires = decoded_wires.into_iter().map(Some).collect::<Vec<_>>();
     let mut wires = Vec::with_capacity(blobs.len());
     let mut claims = Vec::with_capacity(blobs.len());
     let mut resolver = ArtifactDigestResolver { claims: Vec::with_capacity(blobs.len()) };
-    for bytes in blobs {
-        let wire = StagedTeloscCompilerWire::decode(bytes, limits, &mut budget).map_err(executable_error)?;
+    for index in &order {
+        let wire = decoded_wires[*index].take().ok_or(TeloscArtifactError::Capability("package artifact admitted twice"))?;
         let (package, version) = match wire.package_identity() {
             TeloscPackageIdentity::Package { package, version } => (package.to_string(), version.to_string()),
             _ => return Err(TeloscArtifactError::Capability("package artifact must carry a package identity")),
@@ -303,7 +311,9 @@ fn admit_package_set(blobs: &[Vec<u8>], universe: &LoadedUniverseArtifact, limit
             .map_err(|error| executable_error(format!("package authority rejected: {error}")))?;
     }
 
-    let publishing = claims.last().map(|claim| (claim.project, claim.identity.clone()));
+    // The last blob is the publishing package (the run target, or the
+    // nearest dependency of a build); admission order may have moved it.
+    let publishing = publishing_index.and_then(|index| claims.get(index)).map(|claim| (claim.project, claim.identity.clone()));
     let _identity = ArtifactIdentityScope::enter(&projects, publishing);
     let base = StagedTeloscCompilerWire::compose_artifact_semantic_base_over_projects(
         wires,
@@ -316,7 +326,7 @@ fn admit_package_set(blobs: &[Vec<u8>], universe: &LoadedUniverseArtifact, limit
     .map_err(executable_error)?;
 
     let mut decoded = Vec::with_capacity(blobs.len());
-    for bytes in blobs {
+    for bytes in blobs.iter().copied() {
         let container = TeloscContainerView::parse(bytes, limits)?;
         let metadata = {
             use phalcom_compiler_artifact::metadata::{MetadataPreflightLimits, MetadataSectionV1};
@@ -380,6 +390,44 @@ fn admit_package_set(blobs: &[Vec<u8>], universe: &LoadedUniverseArtifact, limit
         base: Arc::new(base),
         packages: ordered.into_iter().map(|(_, package)| package).collect(),
     })
+}
+
+/// Orders decoded package wires so every package is admitted after the
+/// packages it references, ties broken by stable project identity.
+///
+/// Project ids are assigned in admission order and module fingerprints hash
+/// them, so a package must be admitted at the position its own build gave
+/// it: after its dependencies, in the same canonical order its builder used.
+fn admission_order(wires: &[StagedTeloscCompilerWire]) -> Result<Vec<usize>, TeloscArtifactError> {
+    let identities = wires
+        .iter()
+        .map(|wire| {
+            let world = wire.module_world();
+            world
+                .modules
+                .get(world.entry.0 as usize)
+                .map(|root| root.identity.project.clone())
+                .ok_or(TeloscArtifactError::Capability("package artifact has no root module"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let dependencies = wires
+        .iter()
+        .map(|wire| {
+            let external = &wire.module_world().external_projects;
+            (0..identities.len()).filter(|other| external.contains(&identities[*other])).collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let mut order = Vec::with_capacity(wires.len());
+    let mut admitted = vec![false; wires.len()];
+    while order.len() < wires.len() {
+        let next = (0..wires.len())
+            .filter(|index| !admitted[*index] && dependencies[*index].iter().all(|dependency| admitted[*dependency]))
+            .min_by(|left, right| identities[*left].cmp(&identities[*right]))
+            .ok_or(TeloscArtifactError::Capability("package artifact set has a dependency cycle"))?;
+        admitted[next] = true;
+        order.push(next);
+    }
+    Ok(order)
 }
 
 /// Installs and initializes one admitted package generation in `vm`.
