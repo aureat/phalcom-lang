@@ -1315,6 +1315,16 @@ impl ImmutableSemanticQueryAuthority {
             Self::External(catalogue) => catalogue.world_for_query(key),
         }
     }
+
+    /// Immutable semantic snapshots participating in this authority. Universe
+    /// contributes exactly one snapshot; an external catalogue contributes one
+    /// snapshot per validated artifact generation in authority order.
+    pub fn snapshots(&self) -> Box<dyn Iterator<Item = &Arc<SemanticSnapshot>> + '_> {
+        match self {
+            Self::Universe(image) => Box::new(std::iter::once(image.snapshot())),
+            Self::External(catalogue) => Box::new(catalogue.generations().iter().map(|generation| generation.snapshot())),
+        }
+    }
 }
 
 /// A successfully committed complete semantic publication and its immutable roots.
