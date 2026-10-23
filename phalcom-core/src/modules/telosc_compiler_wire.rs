@@ -24,7 +24,7 @@ use phalcom_semantic::artifact::import::{
 use phalcom_semantic::artifact::query::reconstruct_query_image_v4_with_project_catalog_and_allocation_budget;
 use phalcom_semantic::canonical_image::{
     CanonicalDependencyFingerprints, CanonicalSemanticQueryImage, CanonicalSemanticWorldId,
-    ExternalSemanticQueryCatalogue, ExternalSemanticQueryGeneration,
+    CanonicalUniverseFormalImage, ExternalSemanticQueryCatalogue, ExternalSemanticQueryGeneration,
 };
 use phalcom_semantic::{ExternalSemanticSessionSeed, SemanticWorkspaceSession};
 use phalcom_semantic::snapshot::SemanticSnapshot;
@@ -37,7 +37,7 @@ use std::sync::Arc;
 /// into shared receiving stores, but only the composed-base publication barrier
 /// proves all package generations, module owners and query images compatible
 /// with the final native generation.
-pub(crate) struct StagedPackageSemanticGeneration {
+pub(crate) struct StagedArtifactSemanticGeneration {
     pub world: CanonicalSemanticWorldId,
     pub modules: Arc<CanonicalExternalModuleWorld>,
     pub snapshot: Arc<SemanticSnapshot>,
@@ -49,16 +49,16 @@ pub(crate) struct StagedPackageSemanticGeneration {
 /// publication. Construction is all-or-nothing: project receipts, module
 /// authority, type/static generations, semantic snapshots and every retained
 /// query image have all been checked against the final shared generation.
-pub(crate) struct ComposedPackageSemanticBase {
+pub(crate) struct ComposedArtifactSemanticBase {
     projects: Arc<ProjectUniverse>,
     modules: Arc<ExternalModuleAuthoritySet>,
     type_store: Arc<TypeStore>,
     static_values: Arc<StaticValueStore>,
     query_catalogue: Arc<ExternalSemanticQueryCatalogue>,
-    generations: Vec<StagedPackageSemanticGeneration>,
+    generations: Vec<StagedArtifactSemanticGeneration>,
 }
 
-impl ComposedPackageSemanticBase {
+impl ComposedArtifactSemanticBase {
     pub(crate) fn projects(&self) -> &Arc<ProjectUniverse> { &self.projects }
     pub(crate) fn modules(&self) -> &Arc<ExternalModuleAuthoritySet> { &self.modules }
     pub(crate) fn type_store(&self) -> &Arc<TypeStore> { &self.type_store }
@@ -75,7 +75,7 @@ impl ComposedPackageSemanticBase {
         )
     }
 
-    pub(crate) fn generations(&self) -> &[StagedPackageSemanticGeneration] { &self.generations }
+    pub(crate) fn generations(&self) -> &[StagedArtifactSemanticGeneration] { &self.generations }
 
     /// Creates a mutable workspace whose immutable compiler authority is this
     /// entire composed package base. Artifact snapshots retain independent
@@ -94,7 +94,7 @@ impl ComposedPackageSemanticBase {
     }
 
     /// Exact semantic generation owning one externally provided module.
-    pub(crate) fn generation_for_module(&self, module: &ModuleId) -> Option<&StagedPackageSemanticGeneration> {
+    pub(crate) fn generation_for_module(&self, module: &ModuleId) -> Option<&StagedArtifactSemanticGeneration> {
         let origin = self.modules.origin(module)?;
         self.generations.get(origin.index())
     }
@@ -157,24 +157,67 @@ impl StagedTeloscCompilerWire {
         Ok(order)
     }
 
-    /// Dependency-orders and atomically composes a closed set of package
-    /// artifacts into one immutable native semantic base.
+    /// Dependency-orders package artifacts and composes them over the loaded
+    /// precompiled Universe as one immutable native semantic authority.
     ///
-    /// The caller receives no authority unless every artifact validates, every
-    /// resolver receipt extends the prior project graph, module ownership is
-    /// globally unique, and every query image remains readable against the
-    /// final shared type/static generations.
-    pub(crate) fn compose_package_semantic_base(
+    /// Universe is generation zero of the same module/query/store authority;
+    /// there is no parallel canonical-image lookup and no Universe source
+    /// fallback once this base is published.
+    pub(crate) fn compose_artifact_semantic_base(
+        artifacts: Vec<Self>,
+        universe: Arc<CanonicalUniverseFormalImage>,
+        resolver: &dyn TrustedPackageResolver,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<ComposedArtifactSemanticBase, TeloscStagingError> {
+        Self::compose_artifact_semantic_base_impl(
+            artifacts,
+            universe.modules().projects().as_ref(),
+            Some(universe),
+            resolver,
+            limits,
+            allocations,
+        )
+    }
+
+    #[cfg(test)]
+    fn compose_package_semantic_base_without_universe_for_test(
         artifacts: Vec<Self>,
         projects: &ProjectUniverse,
         resolver: &dyn TrustedPackageResolver,
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
-    ) -> Result<ComposedPackageSemanticBase, TeloscStagingError> {
+    ) -> Result<ComposedArtifactSemanticBase, TeloscStagingError> {
+        Self::compose_artifact_semantic_base_impl(
+            artifacts,
+            projects,
+            None,
+            resolver,
+            limits,
+            allocations,
+        )
+    }
+
+    /// Internal composition transaction shared by the production Universe-rooted
+    /// path and the empty-base unit discriminator. Production callers must pass
+    /// a Universe image.
+    fn compose_artifact_semantic_base_impl(
+        artifacts: Vec<Self>,
+        projects: &ProjectUniverse,
+        universe: Option<Arc<CanonicalUniverseFormalImage>>,
+        resolver: &dyn TrustedPackageResolver,
+        limits: &ValidationLimits,
+        allocations: &mut AllocationBudget,
+    ) -> Result<ComposedArtifactSemanticBase, TeloscStagingError> {
         let mut composition_budget = allocations.child(allocations.remaining());
         let order = Self::package_import_order(&artifacts, limits, &mut composition_budget)?;
 
         let artifact_count = artifacts.len();
+        let generation_count = artifact_count
+            .checked_add(usize::from(universe.is_some()))
+            .ok_or_else(|| ArtifactError::from(ValidationError::ReferentialIntegrity(
+                "artifact generation count overflow".into(),
+            )))?;
         let mut pending = composition_budget
             .vector::<Option<Self>>(artifact_count)
             .map_err(ArtifactError::Allocation)?;
@@ -183,14 +226,39 @@ impl StagedTeloscCompilerWire {
         }
 
         let mut project_candidate = projects.clone();
-        let mut receiving_types = TypeStore::new();
-        let mut receiving_static_values = StaticValueStore::new();
+        let mut receiving_types = universe
+            .as_ref()
+            .map_or_else(TypeStore::new, |image| image.snapshot().store.as_ref().clone());
+        let mut receiving_static_values = universe
+            .as_ref()
+            .map_or_else(StaticValueStore::new, |image| image.snapshot().static_values.as_ref().clone());
         let mut generations = composition_budget
-            .vector::<StagedPackageSemanticGeneration>(artifact_count)
+            .vector::<StagedArtifactSemanticGeneration>(generation_count)
             .map_err(ArtifactError::Allocation)?;
         let mut worlds = composition_budget
-            .vector::<Arc<CanonicalExternalModuleWorld>>(artifact_count)
+            .vector::<Arc<CanonicalExternalModuleWorld>>(generation_count)
             .map_err(ArtifactError::Allocation)?;
+
+        if let Some(universe) = universe {
+            if !project_candidate.preserves_authority_of(universe.modules().projects())
+                || !universe.modules().projects().preserves_authority_of(&project_candidate)
+            {
+                return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
+                    "loaded Universe artifact project authority does not match composition base".into(),
+                )).into());
+            }
+            let fingerprints = composition_budget
+                .arc(universe.dependency_fingerprints().clone())
+                .map_err(ArtifactError::Allocation)?;
+            worlds.push(Arc::clone(universe.modules()));
+            generations.push(StagedArtifactSemanticGeneration {
+                world: universe.world().clone(),
+                modules: Arc::clone(universe.modules()),
+                snapshot: Arc::clone(universe.snapshot()),
+                queries: Arc::clone(universe.query_image()),
+                fingerprints,
+            });
+        }
 
         for index in order {
             let artifact = pending
@@ -233,9 +301,9 @@ impl StagedTeloscCompilerWire {
         let type_store = composition_budget.arc(receiving_types).map_err(ArtifactError::Allocation)?;
         let static_values = composition_budget.arc(receiving_static_values).map_err(ArtifactError::Allocation)?;
 
-        // Earlier package snapshots are strict prefixes of the final shared
-        // stores. Validate that every retained query image accepts those final
-        // stores before publishing the composed base.
+        // Every earlier immutable snapshot is a strict prefix of the final
+        // shared stores. Revalidate all retained query images against that
+        // final lineage before publishing any composed authority.
         for generation in &generations {
             generation.queries.reader(
                 &generation.world,
@@ -245,8 +313,8 @@ impl StagedTeloscCompilerWire {
         }
 
         // Query ownership is exact and singular just like module ownership.
-        // Images are BTreeMap-backed, so pairwise merge scans detect overlap
-        // without cloning keys or allocating another untracked ownership map.
+        // Dependency-only evidence may overlap through the catalogue iff its
+        // fingerprints agree; actual query roots may have exactly one owner.
         for left_index in 0..generations.len() {
             for right_index in (left_index + 1)..generations.len() {
                 let mut left = generations[left_index].queries.entries().peekable();
@@ -259,7 +327,7 @@ impl StagedTeloscCompilerWire {
                                 std::cmp::Ordering::Greater => { right.next(); }
                                 std::cmp::Ordering::Equal => {
                                     return Err(ArtifactError::from(ValidationError::ReferentialIntegrity(
-                                        "query key is owned by multiple package artifacts".into(),
+                                        "query key is owned by multiple immutable artifacts".into(),
                                     )).into());
                                 }
                             }
@@ -292,7 +360,7 @@ impl StagedTeloscCompilerWire {
         )?;
         let query_catalogue = composition_budget.arc(query_catalogue).map_err(ArtifactError::Allocation)?;
 
-        let base = ComposedPackageSemanticBase {
+        let base = ComposedArtifactSemanticBase {
             projects: final_projects,
             modules,
             type_store,
@@ -349,7 +417,7 @@ impl StagedTeloscCompilerWire {
         resolver: &dyn TrustedPackageResolver,
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
-    ) -> Result<StagedPackageSemanticGeneration, TeloscStagingError> {
+    ) -> Result<StagedArtifactSemanticGeneration, TeloscStagingError> {
         use phalcom_compiler_artifact::header::TeloscCapabilities;
         if self.header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) {
             return Err(TeloscStagingError::Capability(
@@ -397,7 +465,7 @@ impl StagedTeloscCompilerWire {
         // type/static generation. Enforce that property before returning.
         queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
         let fingerprints = generation_budget.arc(fingerprints).map_err(ArtifactError::Allocation)?;
-        let staged = StagedPackageSemanticGeneration {
+        let staged = StagedArtifactSemanticGeneration {
             world,
             modules,
             snapshot: parts.snapshot,
@@ -421,7 +489,7 @@ impl StagedTeloscCompilerWire {
         receiving_types: &mut TypeStore,
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
-    ) -> Result<StagedPackageSemanticGeneration, TeloscStagingError> {
+    ) -> Result<StagedArtifactSemanticGeneration, TeloscStagingError> {
         use phalcom_compiler_artifact::header::TeloscCapabilities;
         if self.header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) {
             return Err(TeloscStagingError::Capability(
@@ -470,7 +538,7 @@ impl StagedTeloscCompilerWire {
         queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
 
         let fingerprints = generation_budget.arc(fingerprints).map_err(ArtifactError::Allocation)?;
-        let staged = StagedPackageSemanticGeneration {
+        let staged = StagedArtifactSemanticGeneration {
             world,
             modules,
             snapshot: parts.snapshot,
@@ -493,7 +561,7 @@ impl StagedTeloscCompilerWire {
         receiving_static_values: &mut StaticValueStore,
         limits: &ValidationLimits,
         allocations: &mut AllocationBudget,
-    ) -> Result<StagedPackageSemanticGeneration, TeloscStagingError> {
+    ) -> Result<StagedArtifactSemanticGeneration, TeloscStagingError> {
         use phalcom_compiler_artifact::header::TeloscCapabilities;
         if self.header.capabilities.contains(TeloscCapabilities::PORTABLE_EXECUTABLE) {
             return Err(TeloscStagingError::Capability(
@@ -545,7 +613,7 @@ impl StagedTeloscCompilerWire {
         queries.reader(&world, &parts.snapshot.store, &parts.snapshot.static_values)?;
 
         let fingerprints = generation_budget.arc(fingerprints).map_err(ArtifactError::Allocation)?;
-        let staged = StagedPackageSemanticGeneration {
+        let staged = StagedArtifactSemanticGeneration {
             world,
             modules,
             snapshot: parts.snapshot,
@@ -629,11 +697,11 @@ mod staging_transaction_tests {
     }
 
     #[test]
-    fn empty_package_set_publishes_one_closed_empty_shared_generation() {
+    fn empty_package_set_test_discriminator_publishes_closed_empty_shared_generation() {
         let projects = ProjectUniverse::new();
         let limits = ValidationLimits::default();
         let mut allocations = AllocationBudget::new(64 * 1024);
-        let base = StagedTeloscCompilerWire::compose_package_semantic_base(
+        let base = StagedTeloscCompilerWire::compose_package_semantic_base_without_universe_for_test(
             Vec::new(),
             &projects,
             &NoPackageReceipts,
