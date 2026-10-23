@@ -56,18 +56,18 @@ pub fn to_stable_project_with_context(proj: &ProjectIdentity, context: &StableId
                 return package.clone();
             }
             context.projects.get_project(*id).map_or_else(
-            || to_stable_project(proj),
-            |project| StableProjectRef::SourceArtifact {
-                logical_uri: project.source_identity.0.to_string_lossy().into_owned().into_boxed_str(),
-                source_fingerprint: if context.query_fingerprint {
-                    let mut builder = FingerprintBuilder::new();
-                    builder.write_str(&project.source_identity.0.to_string_lossy());
-                    builder.finish()
-                } else {
-                    Fingerprint128(project.revision_fingerprint().0)
+                || to_stable_project(proj),
+                |project| StableProjectRef::SourceArtifact {
+                    logical_uri: project.source_identity.0.to_string_lossy().into_owned().into_boxed_str(),
+                    source_fingerprint: if context.query_fingerprint {
+                        let mut builder = FingerprintBuilder::new();
+                        builder.write_str(&project.source_identity.0.to_string_lossy());
+                        builder.finish()
+                    } else {
+                        Fingerprint128(project.revision_fingerprint().0)
+                    },
                 },
-            },
-        )
+            )
         }
         _ => to_stable_project(proj),
     }
@@ -458,5 +458,41 @@ mod tests {
         assert!(ref_sym < ref_str);
         assert!(ref_str < ref_int);
         assert!(ref_int < ref_bool);
+    }
+}
+
+#[cfg(test)]
+mod trusted_artifact_project_identity_tests {
+    use super::*;
+    use phalcom_compiler_artifact::digest::ArtifactDigest;
+    use phalcom_modules::ValidatedPackageAuthorityReceipt;
+
+    #[test]
+    fn registered_package_project_exports_its_exact_stable_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("dependency");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"dependency\"\nnamespace = \"dependency\"\nversion = \"1.0.0\"\n",
+        ).unwrap();
+        std::fs::write(root.join("src/package.ph"), "").unwrap();
+        let mut projects = ProjectUniverse::new();
+        let id = projects.load_root(root.join("project.toml")).unwrap();
+        let native = ProjectIdentity::Resolved(id);
+        let before = to_stable_project_with_context(&native, &StableIdentityContext::new(&projects));
+        assert!(matches!(before, StableProjectRef::SourceArtifact { .. }));
+
+        let stable = StableProjectRef::Package {
+            package: "dependency".into(),
+            version: "1.0.0".into(),
+            artifact_fingerprint: Fingerprint128([4; 16]),
+        };
+        let digest = ArtifactDigest([5; 32]);
+        let receipt = ValidatedPackageAuthorityReceipt::from_trusted_resolver(stable.clone(), digest, id).unwrap();
+        projects.register_package_authority_receipt(&stable, receipt, Some(digest)).unwrap();
+        for context in [StableIdentityContext::new(&projects), StableIdentityContext::for_query(&projects)] {
+            assert_eq!(to_stable_project_with_context(&native, &context), stable);
+        }
     }
 }
