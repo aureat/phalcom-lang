@@ -462,6 +462,32 @@ impl SurfaceDispatchResolver {
         self.inherent_impl_domains.get(impl_id)
     }
 
+    /// Exact type-to-declaration registrations owned by this dispatch authority.
+    /// Used when composing immutable artifact generations; callers must retain
+    /// declaration ownership checks rather than inferring registrations from
+    /// nominal forms.
+    pub(crate) fn type_declarations(&self) -> &crate::parent_map::ParentMap<TypeId, DeclarationId> {
+        &self.type_declarations
+    }
+
+    /// Exact inherent-implementation domains retained by this authority.
+    pub(crate) fn inherent_impl_domains(
+        &self,
+    ) -> &crate::parent_map::ParentMap<crate::identity::ImplId, Arc<crate::impls::InherentImplDomain>> {
+        &self.inherent_impl_domains
+    }
+
+    /// Installs one already-validated inherent implementation domain.
+    /// Conditional member registration may subsequently reference the same
+    /// domain without duplicating it.
+    pub(crate) fn register_inherent_impl_domain(
+        &mut self,
+        impl_id: crate::identity::ImplId,
+        domain: Arc<crate::impls::InherentImplDomain>,
+    ) {
+        Arc::make_mut(&mut self.inherent_impl_domains).insert(impl_id, domain);
+    }
+
     pub fn get_conditional_members(&self, target: &InherentImplTarget) -> Option<&Arc<ConditionalInherentMemberSet>> {
         self.conditional_members.get(target)
     }
