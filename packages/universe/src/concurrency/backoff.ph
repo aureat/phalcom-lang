@@ -1,3 +1,7 @@
+from .fiber import System
+from universe.errors.argument import ArgumentError
+from universe.time.duration import Duration
+
 /// Delay calculation and suspension strategy for retries and backoff.
 class Backoff {
   mut _kind

@@ -1,3 +1,5 @@
+from universe.option import Option
+
 /// Configurable behavior for disabled feature flags.
 class OffBehavior {
   mut _kind

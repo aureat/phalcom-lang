@@ -1,4 +1,5 @@
 from universe.collections.bytes import Bytes
+from universe.errors.argument import ArgumentError
 
 /// SHA-1 one-shot binary digest. Provided for standards such as UUIDv5;
 /// SHA-1 is not appropriate for new collision-resistant protocols.
