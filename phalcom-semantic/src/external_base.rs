@@ -171,28 +171,17 @@ impl ExternalSemanticSessionSeed {
             for (owner, info) in snapshot.declarations.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "declaration")?;
                 if declarations.contains(owner) {
-                    return Err(incomplete(format!("declaration is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("declaration is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 declarations.insert(info.clone());
 
                 if let Some(template) = snapshot.hierarchy.supertype_template(owner) {
                     if hierarchy.supertype_template(owner).is_some() {
-                        return Err(incomplete(format!("supertype template is owned by multiple immutable artifact generations: {owner}")));
+                        return Err(incomplete(format!("supertype template is owned by multiple immutable artifact generations: {owner:?}")));
                     }
                     hierarchy.insert_template(template.clone());
                 }
 
-                for ty in [info.form, info.class_object_type] {
-                    if let Some(existing) = dispatch.declaration_for_type(ty) {
-                        if existing != owner {
-                            return Err(incomplete(format!(
-                                "runtime type form is claimed by multiple immutable declarations: {existing} and {owner}"
-                            )));
-                        }
-                    } else {
-                        dispatch.register_type(ty, owner.clone());
-                    }
-                }
             }
 
             for declaration in snapshot.declarations.intrinsic_static_domain_declarations() {
@@ -201,7 +190,13 @@ impl ExternalSemanticSessionSeed {
                     .declarations
                     .intrinsic_static_domain_kind(declaration)
                     .ok_or_else(|| incomplete("intrinsic static-domain owner has no kind"))?;
-                declarations.register_intrinsic_static_domain(declaration.clone(), kind);
+                if declarations.intrinsic_static_domain_kind(declaration).is_some() {
+                    return Err(incomplete(format!(
+                        "intrinsic static-domain authority is owned by multiple immutable artifact generations: {:?}",
+                        declaration
+                    )));
+                }
+                declarations.register_imported_intrinsic_static_domain(declaration.clone(), kind);
             }
             for declaration in snapshot.declarations.intrinsic_type_owner_declarations() {
                 validate_owner(&modules, generation_index, &declaration.module, "intrinsic type-owner")?;
@@ -209,21 +204,48 @@ impl ExternalSemanticSessionSeed {
                     .declarations
                     .intrinsic_type_owner(declaration)
                     .ok_or_else(|| incomplete("intrinsic type-owner declaration has no owner"))?;
+                if declarations.intrinsic_type_owner(declaration).is_some() {
+                    return Err(incomplete(format!(
+                        "intrinsic type-owner authority is owned by multiple immutable artifact generations: {:?}",
+                        declaration
+                    )));
+                }
                 declarations.register_intrinsic_type_owner(declaration.clone(), owner);
             }
 
             for (owner, superclass) in snapshot.hierarchy.iter_superclasses() {
                 validate_owner(&modules, generation_index, &owner.module, "hierarchy")?;
                 if hierarchy.superclass(owner).is_some() {
-                    return Err(incomplete(format!("hierarchy edge is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("hierarchy edge is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 hierarchy.insert(owner.clone(), superclass.clone());
+            }
+
+            for (ty, owner) in snapshot.dispatch.type_declarations().iter() {
+                validate_owner(&modules, generation_index, &owner.module, "dispatch type registration")?;
+                if let Some(existing) = dispatch.declaration_for_type(*ty) {
+                    return Err(incomplete(format!(
+                        "dispatch type registration is owned by multiple immutable artifact generations: {:?} -> {:?} (already {:?})",
+                        ty, owner, existing
+                    )));
+                }
+                dispatch.register_type(*ty, owner.clone());
+            }
+            for (impl_id, domain) in snapshot.dispatch.inherent_impl_domains().iter() {
+                validate_owner(&modules, generation_index, &impl_id.module, "inherent implementation domain")?;
+                if dispatch.inherent_impl_domain(impl_id).is_some() {
+                    return Err(incomplete(format!(
+                        "inherent implementation domain is owned by multiple immutable artifact generations: {:?}",
+                        impl_id
+                    )));
+                }
+                dispatch.register_inherent_impl_domain(impl_id.clone(), Arc::clone(domain));
             }
 
             for (owner, surface) in snapshot.dispatch.surfaces().iter() {
                 validate_owner(&modules, generation_index, &owner.module, "dispatch surface")?;
                 if dispatch.get_surface(owner).is_some() {
-                    return Err(incomplete(format!("dispatch surface is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("dispatch surface is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 dispatch.register_surface(owner.clone(), surface.clone());
             }
@@ -242,21 +264,21 @@ impl ExternalSemanticSessionSeed {
             for (callable, signature) in snapshot.callable_signatures.iter() {
                 validate_owner(&modules, generation_index, callable.module(), "callable signature")?;
                 if callable_signatures.get(callable).is_some() {
-                    return Err(incomplete(format!("callable signature is owned by multiple immutable artifact generations: {callable}")));
+                    return Err(incomplete(format!("callable signature is owned by multiple immutable artifact generations: {callable:?}")));
                 }
                 callable_signatures.insert(signature.clone());
             }
             for (factory, product) in snapshot.constructor_initializations.iter() {
                 validate_owner(&modules, generation_index, factory.module(), "constructor initialization")?;
                 if constructor_initializations.get(factory).is_some() {
-                    return Err(incomplete(format!("constructor path is owned by multiple immutable artifact generations: {factory}")));
+                    return Err(incomplete(format!("constructor path is owned by multiple immutable artifact generations: {factory:?}")));
                 }
                 constructor_initializations.insert(product.clone());
             }
             for (callable, definition) in snapshot.callable_definitions.iter() {
                 validate_owner(&modules, generation_index, callable.module(), "callable definition")?;
                 if callable_definitions.get(callable).is_some() {
-                    return Err(incomplete(format!("callable definition is owned by multiple immutable artifact generations: {callable}")));
+                    return Err(incomplete(format!("callable definition is owned by multiple immutable artifact generations: {callable:?}")));
                 }
                 callable_definitions.insert(callable.clone(), definition.clone());
             }
@@ -271,21 +293,21 @@ impl ExternalSemanticSessionSeed {
             for (owner, alias) in snapshot.type_aliases.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "type alias")?;
                 if type_aliases.contains_key(owner) {
-                    return Err(incomplete(format!("type alias is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("type alias is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 type_aliases.insert(alias.clone());
             }
             for (owner, header) in snapshot.trait_headers.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "trait header")?;
                 if trait_headers.contains(owner) {
-                    return Err(incomplete(format!("trait header is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("trait header is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 trait_headers.insert(Arc::clone(header));
             }
             for (owner, surface) in snapshot.trait_surfaces.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "trait surface")?;
                 if trait_surfaces.contains(owner) {
-                    return Err(incomplete(format!("trait surface is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("trait surface is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 trait_surfaces.insert(Arc::clone(surface));
             }
@@ -293,14 +315,14 @@ impl ExternalSemanticSessionSeed {
             for (owner, info) in snapshot.data_semantics.data_decls.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "data semantics")?;
                 if data_semantics.get(owner).is_some() {
-                    return Err(incomplete(format!("data semantics are owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("data semantics are owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 data_semantics.insert_data(Arc::clone(info));
             }
             for (owner, info) in snapshot.enum_semantics.enums.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "enum semantics")?;
                 if enum_semantics.enum_info(owner).is_some() {
-                    return Err(incomplete(format!("enum semantics are owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("enum semantics are owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 enum_semantics.insert_enum(Arc::clone(info));
             }
@@ -314,20 +336,20 @@ impl ExternalSemanticSessionSeed {
             for (owner, requirements) in snapshot.enum_requirements.requirements.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "enum requirements")?;
                 if enum_requirements.requirements.contains_key(owner) {
-                    return Err(incomplete(format!("enum requirements are owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("enum requirements are owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 let statuses = snapshot
                     .enum_requirements
                     .case_statuses
                     .get(owner)
-                    .ok_or_else(|| incomplete(format!("enum requirement owner has no case-status rows: {owner}")))?;
+                    .ok_or_else(|| incomplete(format!("enum requirement owner has no case-status rows: {owner:?}")))?;
                 enum_requirements.insert(owner.clone(), shared_rows(requirements), shared_rows(statuses));
             }
 
             for (owner, surface) in snapshot.associated_surfaces.surfaces.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "associated surface")?;
                 if associated_surfaces.surfaces.get(owner).is_some() {
-                    return Err(incomplete(format!("associated surface is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("associated surface is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 associated_surfaces.insert(owner.clone(), Arc::clone(surface));
             }
@@ -363,7 +385,7 @@ impl ExternalSemanticSessionSeed {
             for (owner, product) in snapshot.static_definitions.iter() {
                 validate_owner(&modules, generation_index, &owner.module, "static definition")?;
                 if static_definitions.contains_key(owner) {
-                    return Err(incomplete(format!("static definition is owned by multiple immutable artifact generations: {owner}")));
+                    return Err(incomplete(format!("static definition is owned by multiple immutable artifact generations: {owner:?}")));
                 }
                 static_definitions.insert(Arc::clone(product));
             }
