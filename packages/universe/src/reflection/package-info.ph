@@ -1,15 +1,23 @@
 @!documentation("Durable package artifact metadata.")
+
+from .package_author import PackageAuthor
+from .package_identity import PackageIdentity
+from .package_requirement import PackageRequirement
+from .uri import Uri
+
 native class PackageInfo is Object {
-  native name -> Symbol
+  native name -> String
   native namespace -> Symbol
-  native version -> String
-  native authors -> List
-  native description -> String
-  native license -> String
-  native homepage -> Uri
-  native repository -> Uri
-  native requirements -> List
-  native defaultEntry -> String
+  native version -> Option<String>
+  native authors -> (*: PackageAuthor)
+  native description -> Option<String>
+  native license -> Option<String>
+  native homepage -> Option<Uri>
+  native repository -> Option<Uri>
+  native requirements -> (*: PackageRequirement)
+  native defaultEntry -> Option<String>
   native identity -> PackageIdentity
   native toString -> String
 }
+
+export PackageInfo

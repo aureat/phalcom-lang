@@ -56,7 +56,24 @@ class Effects {
   sequence<F: Type -> Type, D, I, A>(_ source: I) -> F<Chain<A>>
     where D |= Functor<F>, D |= Applicative<F>, D |= Monad<F>,
           I |= Iterable, <I as Iterable>::Item == F<A>
-  { Effects.traverse<F, D, I, F<A>, A>(source, using: |effect| { effect }) }
+  {
+    let snapshot = Chain<F<A>>.fromIterable(source)
+    let empty: Chain<A> = Chain<A>::Empty
+    let mut accumulated = D.pure(empty)
+    let mut remaining: Chain<F<A>> = snapshot
+    while not remaining.isEmpty {
+      match remaining {
+        Chain::Link(effect, rest) => {
+          accumulated = D.flatMap(accumulated, using: |prefix| {
+            D.map(effect, using: |item| { prefix.prepend(item) })
+          })
+          remaining = rest
+        }
+        _ => {}
+      }
+    }
+    D.map(accumulated, using: |reversed| { reversed.reverse })
+  }
 }
 
 export Effects

@@ -52,7 +52,7 @@ impl PreludeTypeMap {
         // Unit is the source alias `Tuple<>`, not a runtime-support class. Keep
         // its implicit source name visible through this canonical catalog.
         let unit_module = ModuleId::universe(ModulePath::from_components(vec![
-            ModuleComponent::from_identifier("option").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("scalar").expect("canonical Universe component"),
             ModuleComponent::from_identifier("unit").expect("canonical Universe component"),
         ]));
         assert!(
@@ -137,7 +137,7 @@ impl PreludeTypeMap {
                 "Unit",
                 DeclarationId::new(
                     ModuleId::universe(ModulePath::from_components(vec![
-                        ModuleComponent::from_identifier("option").expect("canonical Universe component"),
+                        ModuleComponent::from_identifier("scalar").expect("canonical Universe component"),
                         ModuleComponent::from_identifier("unit").expect("canonical Universe component"),
                     ])),
                     "Unit".into(),

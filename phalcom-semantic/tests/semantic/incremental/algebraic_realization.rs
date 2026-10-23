@@ -70,7 +70,7 @@ fn input(module: ModuleId, source: &str, generation: u64) -> phalcom_semantic::w
         ModuleComponent::from_identifier("numbers").expect("module component"),
         ModuleComponent::from_identifier("algebra").expect("module component"),
     ]));
-    let algebra_source = include_str!("../../../../phalcom-core/core/universe/src/numbers/algebra.ph");
+    let algebra_source = include_str!("../../../../packages/universe/src/numbers/algebra.ph");
     let algebra_parsed = phalcom_ast::parse(algebra_source, 0);
     assert!(
         algebra_parsed.errors.is_empty(),

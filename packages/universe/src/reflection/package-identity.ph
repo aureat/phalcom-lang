@@ -2,3 +2,5 @@
 native class PackageIdentity is Object {
   native toString -> String
 }
+
+export PackageIdentity

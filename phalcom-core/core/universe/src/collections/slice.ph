@@ -1,4 +1,4 @@
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 /// A read-only view over a fixed range of an owning collection.
 native class Slice<T> is Collection {

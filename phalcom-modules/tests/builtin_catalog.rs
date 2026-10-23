@@ -132,8 +132,8 @@ fn bcat_08_root_alias_does_not_create_synthetic_declaration() {
     let aliases = [
         ("Int", make_universe_id(&["scalar", "number"])),
         ("List", make_universe_id(&["collections", "list"])),
-        ("Option", make_universe_id(&["option", "option"])),
-        ("Result", make_universe_id(&["errors", "result"])),
+        ("Option", make_universe_id(&["option"])),
+        ("Result", make_universe_id(&["result"])),
         ("Ordering", make_universe_id(&["object", "ordering"])),
     ];
     root.imports.clear();

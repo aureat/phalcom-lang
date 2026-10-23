@@ -59,7 +59,7 @@ fn generic_spread_accepts_range_user_iterable_and_bounded_pipeline() {
     let value = on_large_stack(|| {
         eval_source(
             r#"
-from universe.collections.iterator_laws import TakeIterator
+from universe.collections.iteration import TakeIterator
 
 class Receiver {
   collect(*values) { return values.size }

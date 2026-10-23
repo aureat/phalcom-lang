@@ -59,8 +59,8 @@ impl<T, E> Result<T, E> {
     /// @param err A callback invoked with the error when this result is `Error`.
     /// @returns The value returned by the invoked callback.
     match<R>(
-        ok: (value: T) -> R,
-        err: (error: E) -> R
+        ok: (T) -> R,
+        err: (E) -> R
     ) -> R {
         match self {
             Ok(value) => ok.call(value)
@@ -98,7 +98,7 @@ impl<T, E> Result<T, E> {
     /// @param f A callback that transforms the successful value.
     /// @returns A result containing the transformed success value, or the
     /// original error when this result is `Error`.
-    map<U>(_ f: (value: T) -> U) -> Result<U, E> {
+    map<U>(_ f: (T) -> U) -> Result<U, E> {
         match self {
             Result::Ok(v) => Result::Ok(f.call(v))
             Result::Error(e) => Result::Error(e)
@@ -116,7 +116,7 @@ impl<T, E> Result<T, E> {
     /// @param f A callback that transforms the error value.
     /// @returns A result containing the original successful value, or the
     /// transformed error when this result is `Error`.
-    mapErr<F>(_ f: (error: E) -> F) -> Result<T, F> {
+    mapErr<F>(_ f: (E) -> F) -> Result<T, F> {
         match self {
             Result::Ok(v) => Result::Ok(v)
             Result::Error(e) => Result::Error(f.call(e))
@@ -163,7 +163,7 @@ impl<T, E> Result<T, E> {
     /// @returns The result produced by `f` when this result is `Ok`; otherwise
     /// the original error.
     andThen<U>(
-        _ f: (value: T) -> Result<U, E>
+        _ f: (T) -> Result<U, E>
     ) -> Result<U, E> {
         match self {
             Result::Ok(v) => f.call(v)
@@ -185,7 +185,7 @@ impl<T, E> Result<T, E> {
     /// @returns The original successful value when this result is `Ok`;
     /// otherwise the result produced by `f`.
     orElse<F>(
-        _ f: (error: E) -> Result<T, F>
+        _ f: (E) -> Result<T, F>
     ) -> Result<T, F> {
         match self {
             Result::Ok(value) => Result::Ok(value)
@@ -202,7 +202,7 @@ impl<T, E> Result<T, E> {
     /// @param predicate A predicate evaluated against the successful value.
     /// @returns `true` when this result is `Ok` and `predicate` returns
     /// `true`; otherwise `false`.
-    isOkAnd(_ predicate: (value: T) -> Bool) -> Bool {
+    isOkAnd(_ predicate: (T) -> Bool) -> Bool {
         match self {
             Result::Ok(value) => predicate.call(value)
             Result::Error(_) => false
@@ -217,7 +217,7 @@ impl<T, E> Result<T, E> {
     /// @param predicate A predicate evaluated against the error value.
     /// @returns `true` when this result is `Error` and `predicate` returns
     /// `true`; otherwise `false`.
-    isErrAnd(_ predicate: (error: E) -> Bool) -> Bool {
+    isErrAnd(_ predicate: (E) -> Bool) -> Bool {
         match self {
             Result::Ok(_) => false
             Result::Error(error) => predicate.call(error)
@@ -237,7 +237,7 @@ impl<T, E> Result<T, E> {
     /// @returns An equivalent result containing the original success or error
     /// value.
     inspect(
-        _ f: (value: T) -> Unit
+        _ f: (T) -> Unit
     ) -> Result<T, E> {
         match self {
             Result::Ok(value) => {
@@ -260,7 +260,7 @@ impl<T, E> Result<T, E> {
     /// @returns An equivalent result containing the original success or error
     /// value.
     inspectErr(
-        _ f: (error: E) -> Unit
+        _ f: (E) -> Unit
     ) -> Result<T, E> {
         match self {
             Result::Ok(value) => Result::Ok(value)
@@ -333,7 +333,7 @@ impl<T, E> Result<T, E> {
     /// @returns The successful value when this result is `Ok`; otherwise the
     /// fallback value produced by `f`.
     unwrapOrElse(
-        _ f: (error: E) -> T
+        _ f: (E) -> T
     ) -> T {
         match self {
             Result::Ok(value) => value

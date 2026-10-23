@@ -190,7 +190,7 @@ impl<T> Option<T> {
   map<U>(_ f: (T) -> U) -> Option<U> {
     match self {
       Option::Some(v) => Option::Some(f.call(v))
-      Option::None => self
+      Option::None => Option<U>::None
     }
   }
 
@@ -211,7 +211,7 @@ impl<T> Option<T> {
   flatMap<U>(_ f: (T) -> Option<U>) -> Option<U> {
     match self {
       Option::Some(v) => f.call(v)
-      Option::None => self
+      Option::None => Option<U>::None
     }
   }
 

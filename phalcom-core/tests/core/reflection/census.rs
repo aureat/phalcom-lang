@@ -191,7 +191,7 @@ fn physical_universe_corpus_matches_catalog() {
         }
     }
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("core/universe/src");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/universe/src");
     let mut physical = BTreeSet::new();
     collect(&root, &root, &mut physical);
     let catalog = phalcom_modules::builtin::UNIVERSE_NODES

@@ -1,7 +1,7 @@
 //! Generic algorithms over an explicitly selected effect family and dictionary.
 from .higher_kinded import Functor, Applicative, Monad
 from .chain import Chain
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 
 class Effects {
   @class

@@ -1,5 +1,5 @@
 import universe.math as math
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 from universe.math import NumericalRangeError
 
 class UndefinedNormalizationError is Error {}

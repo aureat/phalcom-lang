@@ -110,7 +110,7 @@ fn universe_functional_sources_parse_and_export_typed_computations() {
         }
     }
     // Exercise the modified prelude declarations without executing Universe.
-    for components in [&["option", "option"][..], &["errors", "result"][..]] {
+    for components in [&["option"][..], &["result"][..]] {
         let path = ModulePath::from_components(
             components
                 .iter()

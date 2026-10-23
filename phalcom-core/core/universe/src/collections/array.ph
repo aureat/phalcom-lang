@@ -1,4 +1,4 @@
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 native class Array<T> is Collection {
   internal native rawLength -> Int

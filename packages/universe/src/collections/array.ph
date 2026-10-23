@@ -22,17 +22,15 @@ native class Array<T> is Collection {
   iterator -> ArrayIterator<T> { ArrayIterator.new(self) }
 
   slice(_ range: Range) -> Slice<T> {
-    match range.rawSliceBounds(self.size) {
-      Result::Ok(bounds) => {
+    return range.rawSliceBounds(self.size).match(
+      ok: |bounds| {
         let mut start = bounds[0]
         let mut end = bounds[1]
-        if start > end {
-          end = start
-        }
+        if start > end { end = start }
         self.rawSlice(start, end)
-      }
-      Result::Error(error) => { error.raise() }
-    }
+      },
+      err: |error| { error.raise() }
+    )
   }
 
   at(_ i: Int) -> T | None {

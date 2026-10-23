@@ -1379,7 +1379,7 @@ fn published_module_body_analysis_attaches_bindings_through_source_index() {
 
 #[test]
 fn universe_numbers_runtime_binding_attaches_to_its_module_source_site() {
-    let source: Arc<str> = Arc::from(include_str!("../../../../phalcom-core/core/universe/src/numbers/algebra.ph"));
+    let source: Arc<str> = Arc::from(include_str!("../../../../packages/universe/src/numbers/algebra.ph"));
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("numbers").unwrap()]));

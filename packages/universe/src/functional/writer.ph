@@ -5,9 +5,6 @@ from .algebra import Semigroup, Monoid
 data Writer<W, T>(value: T, log: W)
 
 impl<W, T> Writer<W, T> {
-  type Value = T
-  type Log = W
-
   /// Applies `f` to the value and preserves this Writer's log.
   map<U>(_ f: (T) -> U) -> Writer<W, U> {
     Writer<W, U>(value: f.call(self.value), log: self.log)
@@ -42,7 +39,7 @@ impl<W, T> Writer<W, T> where W |= Semigroup {
 impl<W, T> Writer<W, T> where W |= Semigroup, W |= Monoid {
   @class pure(_ value: T) -> Writer<W, T> { Writer<W, T>(value: value, log: W.empty) }
   @class tell(_ log: W) -> Writer<W, T> where T == Unit {
-    Writer<W, T>(value: (), log: log)
+    Writer<W, Unit>(value: (), log: log)
   }
 }
 

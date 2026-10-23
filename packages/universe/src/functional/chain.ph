@@ -9,7 +9,7 @@ data Chain<T> {
 }
 
 impl<T> Chain<T> {
-  type Element = T
+  @class empty -> Chain<T> { Chain<T>::Empty }
 
   @class
   fromIterable<I>(_ values: I) -> Chain<T>

@@ -4,7 +4,7 @@
 //! This module provides string manipulation, searching, trimming, character iteration,
 //! and Unicode scalar decoding.
 
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 from universe.scalar.string_index import StringIndex
 from universe.text.errors import Utf8Error
 from universe.text.substring import (

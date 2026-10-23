@@ -1,7 +1,7 @@
 import universe.math as math
 from universe.numbers import Rational
 from universe.math import NumericalRangeError
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 from .moments import MomentKernel, MomentSummary
 from .covariance import CovarianceKernel
 from ..errors import UndefinedStatisticError

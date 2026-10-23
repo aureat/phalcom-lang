@@ -961,7 +961,7 @@ let callbackResult = Probe.callbackCheck()
 #[test]
 fn generic_iterable_specializes_typed_and_literal_inputs() {
     let source = r#"
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 
 class Probe {
   @class accept<I>(_ input: I) -> Float

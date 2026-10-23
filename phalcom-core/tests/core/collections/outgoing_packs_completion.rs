@@ -288,7 +288,7 @@ Receiver.new().collect(*source)
     let bounded = on_large_stack(|| {
         eval_source(
             r#"
-from universe.collections.iterator_laws import TakeIterator
+from universe.collections.iteration import TakeIterator
 
 class Receiver { collect(*values) { return values.size } }
 let result = Receiver.new().collect(*TakeIterator.new((0..).iterator, 3))

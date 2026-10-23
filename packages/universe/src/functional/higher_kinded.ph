@@ -19,7 +19,6 @@ trait Monad<F: Type -> Type> where Self |= Functor<F>, Self |= Applicative<F> {
 /// An effect with exactly one value and no additional context.
 data Identity<T>(_ value: T)
 impl<T> Identity<T> {
-  type Value = T
   map<U>(_ f: (T) -> U) -> Identity<U> { Identity<U>(f.call(self.value)) }
   flatMap<U>(_ f: (T) -> Identity<U>) -> Identity<U> { f.call(self.value) }
 }
@@ -58,7 +57,11 @@ impl Functor<Chain> for ChainContext {
   @class map<A, B>(_ value: Chain<A>, using f: (A) -> B) -> Chain<B> { value.map(f) }
 }
 impl Applicative<Chain> for ChainContext {
-  @class pure<A>(_ value: A) -> Chain<A> { Chain<A>::Empty.prepend(value) }
+  @class
+  pure<A>(_ value: A) -> Chain<A> {
+    let empty: Chain<A> = Chain<A>::Empty
+    empty.prepend(value)
+  }
   @class map2<A, B, C>(_ left: Chain<A>, _ right: Chain<B>, using f: (A, B) -> C) -> Chain<C> {
     left.flatMap(|a| { right.map(|b| { f.call(a, b) }) })
   }

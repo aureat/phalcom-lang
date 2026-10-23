@@ -203,8 +203,8 @@ fn resolve_implicit_iteration(
     let Some(source_expression) = source_expression else {
         return Err(UnresolvedApplicationReason::DispatchMissing);
     };
-    let iterator_decl = canonical_iteration_declaration(&["collections", "iterator_laws"], "Iterator");
-    let iterable_decl = canonical_iteration_declaration(&["collections", "iterator_laws"], "Iterable");
+    let iterator_decl = canonical_iteration_declaration(&["collections", "iteration"], "Iterator");
+    let iterable_decl = canonical_iteration_declaration(&["collections", "iteration"], "Iterable");
     let Some(view) = ctx.conformance_semantics else {
         return Err(UnresolvedApplicationReason::DispatchMissing);
     };

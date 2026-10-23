@@ -423,7 +423,7 @@ let res = Probe.check(Iter.new())
 fn universe_iterator_derives_iterable() {
     let (vm, module) = run_universe_iterator_project(
         r#"
-from universe.collections.iterator_laws import Iterator, Iterable
+from universe.collections.iteration import Iterator, Iterable
 
 class OneIter {
   @constructor
@@ -454,7 +454,7 @@ let res = Probe.sameTraversal(OneIter.new())
 fn universe_iterator_trait_loads() {
     let (vm, module) = run_universe_iterator_project(
         r#"
-from universe.collections.iterator_laws import Iterator
+from universe.collections.iteration import Iterator
 
 class OneIter {
   @constructor
@@ -473,7 +473,7 @@ let res = OneIter.new().next
 fn universe_iterable_trait_contract_loads() {
     let (vm, module) = run_universe_iterator_project(
         r#"
-from universe.collections.iterator_laws import Iterator, Iterable
+from universe.collections.iteration import Iterator, Iterable
 
 class OneIter {
   @constructor
@@ -502,7 +502,7 @@ let res = Source.new().iterator.next
 fn universe_iterator_derived_item_projection_is_int() {
     let (vm, module) = run_universe_iterator_project(
         r#"
-from universe.collections.iterator_laws import Iterator, Iterable
+from universe.collections.iteration import Iterator, Iterable
 
 class OneIter {
   @constructor

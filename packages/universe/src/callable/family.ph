@@ -1,4 +1,6 @@
 @!documentation("Method family reference produced by selector binding.")
+
+from .method import Method
 native primitive class Family is Function {
   native receiver -> Dynamic
   native selector -> Selector
@@ -16,7 +18,7 @@ native primitive class Family is Function {
 
 native primitive class MethodFamily is Object {
   native bind(_ receiver: Dynamic) -> BoundMethodFamily
-  native selectors -> List
+  native selectors -> List<Selector>
   native size -> Int
   native methodFor(_ selector: Selector) -> Method
 }

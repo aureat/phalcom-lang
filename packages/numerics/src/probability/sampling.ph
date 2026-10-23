@@ -1,5 +1,5 @@
 from universe.random import Distribution, Generator
-from universe.collections.iterator_laws import Iterator
+from universe.collections.iteration import Iterator
 
 /// Infinite, single-pass sampler retaining the caller's descriptor and RNG.
 class SampleIterator<D, G> {

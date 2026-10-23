@@ -30,8 +30,8 @@ impl Period {
     let monthEnd = text.indexOf("M")
     let dayEnd = text.indexOf("D")
     if monthEnd < 2 or dayEnd <= monthEnd { ArgumentError.new("Period.parse: invalid fields").raise() }
-    let monthText = text.slice(1, monthEnd)
-    let dayText = text.slice(monthEnd + 1, dayEnd)
+    let monthText = text.slice(1, monthEnd).toString
+    let dayText = text.slice(monthEnd + 1, dayEnd).toString
     Period.newParsed(Period.parseInteger(monthText), Period.parseInteger(dayText))
   }
 

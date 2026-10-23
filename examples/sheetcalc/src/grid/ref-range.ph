@@ -1,6 +1,6 @@
 /// RefRange: a rectangle of cell references. Implements Iterable for for/map/where.
 
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 import .num as NumModule
 import .ref as RefModule
 

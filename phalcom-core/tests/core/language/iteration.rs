@@ -21,7 +21,7 @@ fn range_iterator_take_infers_and_publishes_specialized_constructor_result() {
             expression.callable.as_ref().is_some_and(|callable| {
                 callable
                     .try_declaration_owner()
-                    .is_some_and(|owner| owner.module.path.to_string() == "collections.iterator_laws" && owner.name == "TakeIterator".into())
+                    .is_some_and(|owner| owner.module.path.to_string() == "collections.iteration" && owner.name == "TakeIterator".into())
                     && callable.selector.encode() == "new(_,_)"
             })
         })

@@ -3,10 +3,6 @@ from .reader import Reader
 
 data ReaderResult<R, T, E> private(_ read: (R) -> Result<T, E>)
 impl<R, T, E> ReaderResult<R, T, E> {
-  type Environment = R
-  type Value = T
-  type ErrorType = E
-
   @class new(_ read: (R) -> Result<T, E>) -> ReaderResult<R, T, E> { ReaderResult<R, T, E>(read) }
   @class pure(_ value: T) -> ReaderResult<R, T, E> {
     ReaderResult<R, T, E>.new(|_| { Result<T, E>::Ok(value) })

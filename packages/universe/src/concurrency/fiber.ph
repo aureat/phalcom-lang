@@ -250,7 +250,7 @@ class FutureSubscription {
 /// rejected (with `Error`). It provides combinators for chaining, transformation,
 /// recovery, and concurrency orchestration.
 class Future<T> {
-  mut _outcome
+  mut _outcome: Option<Result<T, Error>>
   mut _registrations
   mut _nextRegId
   mut _detachCount
@@ -259,7 +259,7 @@ class Future<T> {
   @constructor
   new() {
     _outcome = None
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     _nextRegId = 0
     _detachCount = 0
   }
@@ -270,7 +270,7 @@ class Future<T> {
   @constructor
   value(_ v: T) {
     _outcome = None
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     _nextRegId = 0
     _detachCount = 0
     settleValue(v)
@@ -282,7 +282,7 @@ class Future<T> {
   @constructor
   error(_ e: Error) {
     _outcome = None
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     _nextRegId = 0
     _detachCount = 0
     settleError(e)
@@ -298,7 +298,7 @@ class Future<T> {
     }
     _outcome = Option::Some(outcome)
     let regs = _registrations
-    _registrations = List.new()
+    _registrations = List<FutureSubscription>.new()
     let mut i = 0
     let n = regs.size
     while i < n {
@@ -336,11 +336,11 @@ class Future<T> {
     match _outcome {
       Option::Some(out) => {
         match out {
-          Result::Ok(v) => Some(v)
-          _ => None
+          Result::Ok(v) => Option<T>::Some(v)
+          _ => Option<T>::None
         }
       }
-      _ => None
+      _ => Option<T>::None
     }
   }
 
@@ -351,7 +351,7 @@ class Future<T> {
 
   // Amortized compaction to discard detached registration tombstones.
   private compactRegistrations() -> Unit {
-    let compacted = List.new()
+    let compacted = List<FutureSubscription>.new()
     let mut i = 0
     let n = _registrations.size
     while i < n {
@@ -436,7 +436,6 @@ class Future<T> {
         match out {
           Result::Ok(v) => v
           Result::Error(e) => e.raise()
-          _ => Error.new("await: invalid outcome").raise()
         }
       }
       _ => {
@@ -499,7 +498,6 @@ class Future<T> {
               result.settleError(e)
               ()
             }
-            _ => ()
           }
         }
         _ => ()
@@ -536,7 +534,6 @@ class Future<T> {
               result.settleError(e)
               ()
             }
-            _ => ()
           }
         }
         _ => ()
@@ -568,7 +565,6 @@ class Future<T> {
               )
               ()
             }
-            _ => ()
           }
         }
         _ => ()
@@ -604,7 +600,6 @@ class Future<T> {
               )
               ()
             }
-            _ => ()
           }
         }
         _ => ()
@@ -633,18 +628,18 @@ class Future<T> {
   all<U>(_ inputs: List<Future<U>>) -> Future<List<U>> {
     let n = inputs.size
     if n == 0 {
-      return Future.value(List.new())
+      return Future.value(List<U>.new())
     }
     let result: Future<List<U>> = Future.new()
     let mut remaining = n
-    let values = List.new()
+    let values: List<U> = List<U>.new()
     let mut idx = 0
     while idx < n {
       values.rawPush(None)
       idx = idx + 1
     }
     let mut settled = false
-    let subs = List.new()
+    let subs = List<FutureSubscription>.new()
 
     let mut i = 0
     while i < n {
@@ -710,17 +705,17 @@ class Future<T> {
   allSettled<U>(_ inputs: List<Future<U>>) -> Future<List<Result<U, Error>>> {
     let n = inputs.size
     if n == 0 {
-      return Future.value(List.new())
+      return Future.value(List<Result<U, Error>>.new())
     }
     let result: Future<List<Result<U, Error>>> = Future.new()
     let mut remaining = n
-    let outcomes = List.new()
+    let outcomes: List<Result<U, Error>> = List<Result<U, Error>>.new()
     let mut idx = 0
     while idx < n {
       outcomes.rawPush(None)
       idx = idx + 1
     }
-    let subs = List.new()
+    let subs = List<FutureSubscription>.new()
 
     let mut i = 0
     while i < n {
@@ -760,7 +755,7 @@ class Future<T> {
     }
     let result: Future<U> = Future.new()
     let mut settled = false
-    let subs = List.new()
+    let subs = List<FutureSubscription>.new()
 
     let mut i = 0
     while i < n {

@@ -40,7 +40,7 @@ native class List<T> is Collection {
     return self.rawAt(i)
   }
 
-  get(_ index) {
+  get(_ index: Int) -> Option<T> {
     let mut raw = self.rawAt(index)
     let mut len = self.size
     let mut i = index
@@ -52,8 +52,8 @@ native class List<T> is Collection {
   }
 
   private sliceByRange(_ range) {
-    match range.rawSliceBounds(self.size) {
-      Result::Ok(bounds) => {
+    return range.rawSliceBounds(self.size).match(
+      ok: |bounds| {
         let mut start = bounds[0]
         let mut end = bounds[1]
         if start > end {
@@ -66,9 +66,9 @@ native class List<T> is Collection {
           i = i + 1
         }
         result
-      }
-      Result::Error(error) => { error.raise() }
-    }
+      },
+      err: |error| { error.raise() }
+    )
   }
 
   [_ index] {
@@ -335,3 +335,5 @@ impl<T> CanonicalIterable for List<T> {
   type Iterator = ListIterator<T>
   iterator -> ListIterator<T> { ListIterator.new(self) }
 }
+
+export List

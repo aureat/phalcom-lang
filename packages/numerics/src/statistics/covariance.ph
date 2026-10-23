@@ -1,6 +1,6 @@
 import universe.math as math
 from universe.math import NumericalRangeError
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 
 const maxApproximateCount: Int = 9007199254740991
 

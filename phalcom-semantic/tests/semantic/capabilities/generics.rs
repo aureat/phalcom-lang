@@ -490,7 +490,7 @@ class Probe {
 fn universe_future_preserves_payload_types_through_async_map_then_and_await() {
     let source = format!(
         "{}\n{}",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../phalcom-core/core/universe/src/concurrency/fiber.ph")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../packages/universe/src/concurrency/fiber.ph")),
         r#"
 class GenericFutureProbe {
   @class
@@ -555,7 +555,7 @@ class GenericFutureProbe {
 fn universe_future_rejects_incompatible_settlement_chaining_and_recovery() {
     let source = format!(
         "{}\n{}",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../phalcom-core/core/universe/src/concurrency/fiber.ph")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../packages/universe/src/concurrency/fiber.ph")),
         r#"
 class InvalidFutureProbe {
   @class
@@ -595,7 +595,7 @@ class InvalidFutureProbe {
 fn unsaturated_generic_constructors_are_cleanly_rejected_in_proper_type_positions() {
     let source = format!(
         "{}\n{}",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../phalcom-core/core/universe/src/concurrency/fiber.ph")),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../packages/universe/src/concurrency/fiber.ph")),
         r#"
 class ProperTypeProbe {
   @class

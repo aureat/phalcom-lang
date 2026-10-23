@@ -1,4 +1,4 @@
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable, TakeIterator
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable, TakeIterator
 
 /// Describes a bounded or unbounded numeric interval.
 native class Range is Collection {

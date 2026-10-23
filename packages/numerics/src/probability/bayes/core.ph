@@ -1,7 +1,7 @@
 import universe.math as math
 import ...special as special
 from universe.math import NumericalRangeError
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 from universe.random import Bernoulli
 from ..gamma_beta import Beta, Gamma
 

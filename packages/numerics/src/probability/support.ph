@@ -1,4 +1,4 @@
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 
 /// Runtime support descriptions. These describe mathematical membership,
 /// independently of whether a finite-precision sampler can resolve every point.

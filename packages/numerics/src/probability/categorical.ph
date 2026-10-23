@@ -1,7 +1,7 @@
 import universe.math as math
 from universe.math import NumericalRangeError
 from universe.random import Distribution, Generator
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 from .capabilities import HasMass
 from .probability_helpers import UndefinedNormalizationError
 from .support import FiniteSupport

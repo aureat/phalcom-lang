@@ -9,6 +9,69 @@ class SHA1 {
   }
 
   @class
+  private roundFunction(_ t: Int, _ b: Int, _ c: Int, _ d: Int) -> Int {
+    if t < 20 { return (b & c) | ((~b) & d) }
+    if t < 40 { return b ^ c ^ d }
+    if t < 60 { return (b & c) | (b & d) | (c & d) }
+    b ^ c ^ d
+  }
+
+  @class
+  private roundConstant(_ t: Int) -> Int {
+    if t < 20 { return 0x5a827999 }
+    if t < 40 { return 0x6ed9eba1 }
+    if t < 60 { return 0x8f1bbcdc }
+    0xca62c1d6
+  }
+
+  @class
+  private schedule(_ padded: Bytes, _ offset: Int) -> List<Int> {
+    let words: List<Int> = []
+    let mut t = 0
+    while t < 16 {
+      let start = offset + t * 4
+      words.append((padded.at(start) << 24) | (padded.at(start + 1) << 16) |
+        (padded.at(start + 2) << 8) | padded.at(start + 3))
+      t = t + 1
+    }
+    while t < 80 {
+      words.append(SHA1.rotate(words.at(t - 3) ^ words.at(t - 8) ^
+        words.at(t - 14) ^ words.at(t - 16), 1))
+      t = t + 1
+    }
+    words
+  }
+
+  @class
+  private compress(_ padded: Bytes, _ offset: Int, _ h: List<Int>) -> List<Int> {
+    let words = SHA1.schedule(padded, offset)
+    let mut a = h.at(0)
+    let mut b = h.at(1)
+    let mut c = h.at(2)
+    let mut d = h.at(3)
+    let mut e = h.at(4)
+    let mut t = 0
+    while t < 80 {
+      let f = SHA1.roundFunction(t, b, c, d)
+      let k = SHA1.roundConstant(t)
+      let temp = (SHA1.rotate(a, 5) + f + e + k + words.at(t)) & 0xffffffff
+      e = d
+      d = c
+      c = SHA1.rotate(b, 30)
+      b = a
+      a = temp
+      t = t + 1
+    }
+    [
+      (h.at(0) + a) & 0xffffffff,
+      (h.at(1) + b) & 0xffffffff,
+      (h.at(2) + c) & 0xffffffff,
+      (h.at(3) + d) & 0xffffffff,
+      (h.at(4) + e) & 0xffffffff
+    ]
+  }
+
+  @class
   private writeWord(_ out: Bytes, _ offset: Int, _ word: Int) -> Unit {
     let mut i = 0
     while i < 4 {
@@ -35,58 +98,19 @@ class SHA1 {
       i = i + 1
     }
 
-    let mut h0 = 0x67452301
-    let mut h1 = 0xefcdab89
-    let mut h2 = 0x98badcfe
-    let mut h3 = 0x10325476
-    let mut h4 = 0xc3d2e1f0
+    let mut h = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0]
     let mut offset = 0
     while offset < paddedLength {
-      let words: List<Int> = []
-      let mut t = 0
-      while t < 16 {
-        let start = offset + t * 4
-        words.append((padded.at(start) << 24) | (padded.at(start + 1) << 16) |
-          (padded.at(start + 2) << 8) | padded.at(start + 3))
-        t = t + 1
-      }
-      while t < 80 {
-        words.append(SHA1.rotate(words.at(t - 3) ^ words.at(t - 8) ^
-          words.at(t - 14) ^ words.at(t - 16), 1))
-        t = t + 1
-      }
-
-      let mut a = h0
-      let mut b = h1
-      let mut c = h2
-      let mut d = h3
-      let mut e = h4
-      t = 0
-      while t < 80 {
-        let f = if t < 20 { (b & c) | ((~b) & d) } else if t < 40 { b ^ c ^ d } else if t < 60 { (b & c) | (b & d) | (c & d) } else { b ^ c ^ d }
-        let k = if t < 20 { 0x5a827999 } else if t < 40 { 0x6ed9eba1 } else if t < 60 { 0x8f1bbcdc } else { 0xca62c1d6 }
-        let temp = (SHA1.rotate(a, 5) + f + e + k + words.at(t)) & 0xffffffff
-        e = d
-        d = c
-        c = SHA1.rotate(b, 30)
-        b = a
-        a = temp
-        t = t + 1
-      }
-      h0 = (h0 + a) & 0xffffffff
-      h1 = (h1 + b) & 0xffffffff
-      h2 = (h2 + c) & 0xffffffff
-      h3 = (h3 + d) & 0xffffffff
-      h4 = (h4 + e) & 0xffffffff
+      h = SHA1.compress(padded, offset, h)
       offset = offset + 64
     }
 
     let digest = Bytes.new(20)
-    SHA1.writeWord(digest, 0, h0)
-    SHA1.writeWord(digest, 4, h1)
-    SHA1.writeWord(digest, 8, h2)
-    SHA1.writeWord(digest, 12, h3)
-    SHA1.writeWord(digest, 16, h4)
+    SHA1.writeWord(digest, 0, h.at(0))
+    SHA1.writeWord(digest, 4, h.at(1))
+    SHA1.writeWord(digest, 8, h.at(2))
+    SHA1.writeWord(digest, 12, h.at(3))
+    SHA1.writeWord(digest, 16, h.at(4))
     digest
   }
 }

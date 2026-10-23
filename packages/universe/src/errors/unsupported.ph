@@ -13,6 +13,7 @@ class Unsupported is Error {
 
   @constructor
   private create() {
+    super.new()
     // _message = "unsupported"
     // _kind = #unsupported
     // _cause = None

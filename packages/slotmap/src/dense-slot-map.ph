@@ -1,5 +1,5 @@
 from .slot_map import SlotKey
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 data DenseSlotState {
   Occupied(_ denseIndex: Int)
