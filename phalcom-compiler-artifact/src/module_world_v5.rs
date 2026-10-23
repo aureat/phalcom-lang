@@ -941,7 +941,7 @@ impl ModuleWorldV5 {
             }
             world
         };
-        world.validate(limits)?;
+        world.validate_with_allocation_budget(limits, &mut section)?;
         transaction.commit_child(section).map_err(ArtifactError::Allocation)?;
         Ok(world)
     }
@@ -1035,6 +1035,14 @@ impl ModuleWorldV5 {
     /// Validates the world on its own: every local rule of schemas 2–4 applied
     /// to the new field types, plus `MW5-V1` through `MW5-V10`.
     pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        let mut allocations = AllocationBudget::new(usize::MAX);
+        self.validate_with_allocation_budget(limits, &mut allocations)
+    }
+
+    /// Validates the world exactly like [`Self::validate`], charging the
+    /// external-module usage bitmap against `allocations` so decode-time
+    /// validation stays inside the section's load ledger.
+    fn validate_with_allocation_budget(&self, limits: &ValidationLimits, allocations: &mut AllocationBudget) -> Result<(), ArtifactError> {
         if self.modules.is_empty() {
             return Err(invalid("module world must contain at least one module"));
         }
@@ -1077,7 +1085,8 @@ impl ModuleWorldV5 {
             }
         }
 
-        let mut used = vec![false; self.external_modules.len()];
+        let mut used = allocations.vector::<bool>(self.external_modules.len()).map_err(ArtifactError::Allocation)?;
+        used.resize(self.external_modules.len(), false);
 
         for (mod_idx, module) in self.modules.iter().enumerate() {
             crate::identity::validate_persistent_project_ref(&module.identity.project, limits)?;
