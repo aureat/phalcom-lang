@@ -1613,7 +1613,10 @@ fn import_structural_primary_contracts_with_owner_catalog(
 }
 
 use crate::artifact::validate::{compute_witness_layout_fingerprint, validate_pending_static_references};
-use crate::static_value::{StaticRelocation, StaticValueStore, import_static_value_graph_with_allocation_budget};
+use crate::static_value::{
+    StaticRelocation, StaticValueStore, import_static_value_graph_into_store_with_allocation_budget,
+    import_static_value_graph_with_allocation_budget,
+};
 use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
     AssociatedFamilyKindV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, ConformanceTargetV1, IntrinsicTypeOperationV1,
@@ -6595,11 +6598,43 @@ pub fn validate_and_import_semantic_world_into_type_store_with_module_world_and_
         Some(module_world),
         Some(projects),
         Some(&mut candidate),
+        None,
         limits,
         &mut allocations,
     )?;
     transaction.commit_child(allocations).map_err(allocation_error)?;
     *receiving_type_store = candidate;
+    Ok(parts)
+}
+
+/// Imports one semantic world into caller-owned receiving type and static-value
+/// generations. Neither caller-visible store is replaced until the complete
+/// semantic import and allocation child transaction both commit.
+pub fn validate_and_import_semantic_world_into_shared_stores_with_module_world_and_project_universe_and_allocation_budget(
+    world: SemanticWorldV4,
+    module_world: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    projects: &phalcom_modules::ProjectUniverse,
+    receiving_type_store: &mut TypeStore,
+    receiving_static_values: &mut StaticValueStore,
+    limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<ValidatedSemanticParts, ArtifactError> {
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = transaction.child(section_limit);
+    let mut type_candidate = receiving_type_store.clone();
+    let mut static_candidate = receiving_static_values.clone();
+    let parts = validate_and_import_semantic_world_inner(
+        world,
+        Some(module_world),
+        Some(projects),
+        Some(&mut type_candidate),
+        Some(&mut static_candidate),
+        limits,
+        &mut allocations,
+    )?;
+    transaction.commit_child(allocations).map_err(allocation_error)?;
+    *receiving_type_store = type_candidate;
+    *receiving_static_values = static_candidate;
     Ok(parts)
 }
 
@@ -6625,7 +6660,7 @@ fn validate_and_import_semantic_world_with_optional_module_world(
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
     let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
     let mut allocations = transaction.child(section_limit);
-    let parts = validate_and_import_semantic_world_inner(world, module_world, projects, None, limits, &mut allocations)?;
+    let parts = validate_and_import_semantic_world_inner(world, module_world, projects, None, None, limits, &mut allocations)?;
     transaction.commit_child(allocations).map_err(allocation_error)?;
     Ok(parts)
 }
@@ -6642,6 +6677,7 @@ fn validate_and_import_semantic_world_inner(
     module_world: Option<&phalcom_compiler_artifact::module_world::ModuleWorldV2>,
     projects: Option<&phalcom_modules::ProjectUniverse>,
     mut receiving_type_store: Option<&mut TypeStore>,
+    mut receiving_static_values: Option<&mut StaticValueStore>,
     limits: &ValidationLimits,
     allocations: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
@@ -6696,18 +6732,36 @@ fn validate_and_import_semantic_world_inner(
     )?;
     record_import_allocation_diagnostic_stage(4, allocations);
 
-    // 5. Fresh StaticValueStore through validated factories
-    let (static_values, static_relocation) = import_static_value_graph_with_allocation_budget(
-        &world.static_values,
-        &type_store,
-        &type_relocation,
-        &structural_contracts.data_table,
-        &structural_contracts.enum_table,
-        &|decl_ref, allocations| import_stable_declaration_with_allocation_budget(decl_ref, allocations),
-        &|var_ref, allocations| import_stable_variant_with_allocation_budget(var_ref, allocations),
-        limits,
-        allocations,
-    )?;
+    // 5. Checked StaticValueStore relocation. Shared-generation callers use a
+    // private candidate while legacy imports retain the fresh-store path.
+    let (static_values, static_relocation) = if let Some(receiver) = receiving_static_values.as_deref_mut() {
+        let mut candidate = receiver.clone();
+        let relocation = import_static_value_graph_into_store_with_allocation_budget(
+            &mut candidate,
+            &world.static_values,
+            &type_store,
+            &type_relocation,
+            &structural_contracts.data_table,
+            &structural_contracts.enum_table,
+            &|decl_ref, allocations| import_stable_declaration_with_allocation_budget(decl_ref, allocations),
+            &|var_ref, allocations| import_stable_variant_with_allocation_budget(var_ref, allocations),
+            limits,
+            allocations,
+        )?;
+        (candidate, relocation)
+    } else {
+        import_static_value_graph_with_allocation_budget(
+            &world.static_values,
+            &type_store,
+            &type_relocation,
+            &structural_contracts.data_table,
+            &structural_contracts.enum_table,
+            &|decl_ref, allocations| import_stable_declaration_with_allocation_budget(decl_ref, allocations),
+            &|var_ref, allocations| import_stable_variant_with_allocation_budget(var_ref, allocations),
+            limits,
+            allocations,
+        )?
+    };
     record_import_allocation_diagnostic_stage(5, allocations);
 
     // Cross-validate pending static references
@@ -7646,6 +7700,9 @@ fn validate_and_import_semantic_world_inner(
     };
     if let Some(receiver) = receiving_type_store.as_deref_mut() {
         *receiver = parts.type_store.as_ref().clone();
+    }
+    if let Some(receiver) = receiving_static_values.as_deref_mut() {
+        *receiver = parts.static_values.as_ref().clone();
     }
     Ok(parts)
 }
