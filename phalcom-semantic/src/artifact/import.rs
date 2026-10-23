@@ -6631,16 +6631,19 @@ fn validate_and_import_semantic_world_inner(
     };
     let has_intrinsic_projection_rows =
         !world.structural_contracts.intrinsic_static_domains.is_empty() || !world.structural_contracts.intrinsic_type_owners.is_empty();
-    let owner_catalog = if has_intrinsic_projection_rows {
-        let module_world = module_world.ok_or_else(|| referential("module world is required to resolve intrinsic projection owners"))?;
-        let projects = projects.ok_or_else(|| referential("project universe is required to resolve intrinsic projection owners"))?;
-        Some(StableOwnerCatalog::new(module_world, projects)?)
-    } else {
-        None
+    // Project-qualified type graph nodes require the same exact owner catalog
+    // as intrinsic projection rows. Do not resolve them from display names or
+    // construct a synthetic project identity during import.
+    let owner_catalog = match (module_world, projects) {
+        (Some(module_world), Some(projects)) => Some(StableOwnerCatalog::new(module_world, projects)?),
+        (None, None) if !has_intrinsic_projection_rows => None,
+        _ => return Err(referential("module world and project universe are required to resolve artifact semantic owners")),
     };
     record_import_allocation_diagnostic_stage(2, allocations);
     // 3. Fresh TypeStore with checked TypeRelocation
-    let (mut type_store, type_relocation) = TypeStore::import_type_graph_with_allocation_budget(&world.type_graph, limits, allocations)?;
+    let (mut type_store, type_relocation) = TypeStore::import_type_graph_with_owner_catalog_and_allocation_budget(
+        &world.type_graph, owner_catalog.as_ref(), limits, allocations,
+    )?;
     record_import_allocation_diagnostic_stage(3, allocations);
 
     // 4. Structural primary contracts (shells, hierarchy, aliases, data/enum contracts, signatures)
