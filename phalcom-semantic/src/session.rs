@@ -2920,10 +2920,11 @@ impl SemanticWorkspaceSession {
                         .map_or_else(TypeAliasTable::new, |seed| TypeAliasTable::with_parent(Arc::clone(&seed.type_aliases)))
                 },
                 |snapshot| {
-                if previous_snapshot_is_immutable_base {
-                    TypeAliasTable::with_parent(snapshot.type_aliases.clone())
-                } else {
-                    (*snapshot.type_aliases).clone()
+                    if previous_snapshot_is_immutable_base {
+                        TypeAliasTable::with_parent(snapshot.type_aliases.clone())
+                    } else {
+                        (*snapshot.type_aliases).clone()
+                    }
                 },
             );
         let mut static_definitions_table = previous_snapshot
@@ -2935,10 +2936,11 @@ impl SemanticWorkspaceSession {
                         .map_or_else(StaticDefinitionTable::new, |seed| StaticDefinitionTable::with_parent(Arc::clone(&seed.static_definitions)))
                 },
                 |snapshot| {
-                if previous_snapshot_is_immutable_base {
-                    StaticDefinitionTable::with_parent(snapshot.static_definitions.clone())
-                } else {
-                    (*snapshot.static_definitions).clone()
+                    if previous_snapshot_is_immutable_base {
+                        StaticDefinitionTable::with_parent(snapshot.static_definitions.clone())
+                    } else {
+                        (*snapshot.static_definitions).clone()
+                    }
                 },
             );
         let mut static_constants_table = previous_snapshot
@@ -2951,10 +2953,11 @@ impl SemanticWorkspaceSession {
                     )
                 },
                 |snapshot| {
-                if previous_snapshot_is_immutable_base {
-                    crate::static_constant::StaticConstantTable::with_parent(snapshot.static_constants.clone())
-                } else {
-                    (*snapshot.static_constants).clone()
+                    if previous_snapshot_is_immutable_base {
+                        crate::static_constant::StaticConstantTable::with_parent(snapshot.static_constants.clone())
+                    } else {
+                        (*snapshot.static_constants).clone()
+                    }
                 },
             );
         for module in &structural_recomputed_modules {
