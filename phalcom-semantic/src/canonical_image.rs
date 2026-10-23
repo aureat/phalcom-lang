@@ -2144,6 +2144,75 @@ mod tests {
     }
 
     #[test]
+    fn external_query_catalogue_preserves_immutable_database_semantics_without_universe_identity() {
+        let image = canonical_universe_formal_image().unwrap().clone();
+        let (key, entry) = image.query_image().entries().next().unwrap();
+        let key = key.clone();
+        let input = entry.input_fingerprint;
+        let retained = image.reader().unwrap().product(&key).unwrap().clone();
+
+        let mut allocations = AllocationBudget::new(16 * 1024 * 1024);
+        let generation = ExternalSemanticQueryGeneration::from_validated_parts_with_allocation_budget(
+            image.world(),
+            Arc::clone(image.snapshot()),
+            Arc::clone(image.query_image()),
+            Arc::new(CanonicalDependencyFingerprints::Source(BTreeMap::new())),
+            image.snapshot().store.as_ref(),
+            image.snapshot().static_values.as_ref(),
+            &mut allocations,
+        )
+        .unwrap();
+        let catalogue = ExternalSemanticQueryCatalogue::from_generations_with_allocation_budget(
+            vec![generation],
+            &mut allocations,
+        )
+        .unwrap();
+        let catalogue = Arc::new(catalogue);
+        let mut db = SemanticDb::with_external_query_catalogue(
+            crate::identity::WorkspaceId::from_raw(91),
+            Arc::clone(&catalogue),
+        );
+
+        assert!(db.canonical_image().is_none(), "external authority must not impersonate the Universe image");
+        assert!(db.immutable_query_authority().is_some());
+        assert!(db.is_current(&key));
+        assert!(db.validate_reuse(&key, input));
+        assert_eq!(
+            db.product_origin(&key),
+            Some(crate::db::SemanticProductOrigin::Canonical(image.world().clone()))
+        );
+        assert!(Arc::ptr_eq(db.product(&key).unwrap(), &retained));
+        assert!(!db.discard_for_recompute(&key));
+        assert_eq!(db.retire_query(&key), 0);
+    }
+
+    #[test]
+    fn external_query_catalogue_rejects_duplicate_query_ownership() {
+        let image = canonical_universe_formal_image().unwrap().clone();
+        let mut allocations = AllocationBudget::new(32 * 1024 * 1024);
+        let make_generation = |allocations: &mut AllocationBudget| {
+            ExternalSemanticQueryGeneration::from_validated_parts_with_allocation_budget(
+                image.world(),
+                Arc::clone(image.snapshot()),
+                Arc::clone(image.query_image()),
+                Arc::new(CanonicalDependencyFingerprints::Source(BTreeMap::new())),
+                image.snapshot().store.as_ref(),
+                image.snapshot().static_values.as_ref(),
+                allocations,
+            )
+            .unwrap()
+        };
+        let first = make_generation(&mut allocations);
+        let second = make_generation(&mut allocations);
+        let error = ExternalSemanticQueryCatalogue::from_generations_with_allocation_budget(
+            vec![first, second],
+            &mut allocations,
+        )
+        .expect_err("two immutable generations may not own the same query key");
+        assert!(error.to_string().contains("multiple immutable artifact generations"));
+    }
+
+    #[test]
     fn canonical_image_database_reads_are_immutable_leaves_across_local_rollback() {
         let image = canonical_universe_formal_image().unwrap().clone();
         let (key, entry) = image.query_image().entries().next().unwrap();
