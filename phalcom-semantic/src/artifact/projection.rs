@@ -52,6 +52,7 @@
 use crate::identity::{
     AssociatedStaticDomainDeclarationId, CallableId, DeclarationId, FieldId, ImplId, ModuleId, StaticCaseId, StaticDomainDeclarationId, VariantId,
 };
+use crate::db::QueryKey;
 use crate::snapshot::SemanticSnapshot;
 use crate::static_constant::StaticConstantId;
 use crate::types::type_member::TypeMemberDeclarationId;
@@ -151,6 +152,82 @@ impl ArtifactProjectionScope {
     pub fn owns_static_constant(&self, constant: &StaticConstantId) -> bool {
         self.owns_module(&constant.0.module)
     }
+
+    /// Whether a query root belongs to this artifact.
+    ///
+    /// Queries without a single owning module (target-indexed dispatch buckets,
+    /// generic conformance evidence) are derived global products: no package
+    /// artifact owns them, though the whole-image scope still does.
+    pub fn owns_query(&self, key: &QueryKey) -> bool {
+        match query_owner_module(key) {
+            Some(module) => self.owns_module(module),
+            None => self.is_whole_image(),
+        }
+    }
+}
+
+/// The single module that owns `key`'s product, or `None` for derived global queries.
+pub fn query_owner_module(key: &QueryKey) -> Option<&ModuleId> {
+    use crate::attribute_analysis::AttributeOwnerId;
+    use QueryKey as Q;
+    Some(match key {
+        Q::ParsedModule(module)
+        | Q::UnlinkedInterface(module)
+        | Q::ResolvedImports(module)
+        | Q::LinkedInterface(module)
+        | Q::SemanticComponent(module)
+        | Q::SourceStructure(module)
+        | Q::AdvisoryModule(module)
+        | Q::ModuleDiagnostics(module)
+        | Q::ModuleMetadata(module)
+        | Q::LinkedName(module, _)
+        | Q::PublicExport(module, _)
+        | Q::ModuleStaticBindingCatalog(module)
+        | Q::ModuleStaticBindings(module) => module,
+        Q::DeclarationShell(declaration)
+        | Q::DeclarationSurface(declaration)
+        | Q::TraitHeader(declaration)
+        | Q::TraitSurface(declaration)
+        | Q::HierarchyEdge(declaration)
+        | Q::ConstructorInitialization(declaration)
+        | Q::DataDeclaration(declaration)
+        | Q::EnumDeclaration(declaration)
+        | Q::EnumRequirements(declaration)
+        | Q::AssociatedSurface(declaration)
+        | Q::StaticDefinition(declaration) => &declaration.module,
+        Q::CheckedStaticBody(body) => &body.0.module,
+        Q::ConformanceDispatch(implementation) => &implementation.module,
+        Q::CallableDefinition(callable)
+        | Q::CallableSignature(callable)
+        | Q::CallableBody(callable)
+        | Q::CallableEffects(callable)
+        | Q::CallableControl(callable)
+        | Q::CallableTermination(callable)
+        | Q::CallableContracts(callable)
+        | Q::VerificationConditions(callable)
+        | Q::SourceFormalAttachment(callable)
+        | Q::AdvisoryCallable(callable) => callable.module(),
+        Q::FieldSignature(field) => &field.owner.module,
+        Q::TypeMemberDeclaration(member) => &member.owner.module,
+        Q::StaticDomainCaseCatalog(domain) => match domain {
+            StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
+            StaticDomainDeclarationId::Associated(associated) => &associated.owner.module,
+        },
+        Q::StaticCaseSignature(case) => match &case.domain {
+            StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,
+            StaticDomainDeclarationId::Associated(associated) => &associated.owner.module,
+        },
+        Q::AssociatedStaticDomainDeclaration(domain) => &domain.owner.module,
+        Q::StaticConstant(constant) => &constant.0.module,
+        Q::ResolvedImport(site) => &site.importer,
+        Q::AttributeArgument(argument) => match &argument.owner {
+            AttributeOwnerId::Module(module) => module,
+            AttributeOwnerId::Declaration(declaration) => &declaration.module,
+            AttributeOwnerId::Callable(callable) => callable.module(),
+            AttributeOwnerId::Field(field) => &field.owner.module,
+        },
+        Q::TraitDispatchBucket(_) | Q::GenericConformance(_) => return None,
+    })
 }
 
 /// Read-only export view of the rows of one snapshot owned by one scope.

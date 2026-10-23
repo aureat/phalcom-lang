@@ -5714,6 +5714,31 @@ pub fn export_query_image_v4(
     world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
     limits: &ValidationLimits,
 ) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
+    export_query_image_v4_scoped(
+        &super::projection::ArtifactProjectionScope::whole_image(),
+        queries,
+        dependency_fingerprints,
+        modules,
+        world,
+        limits,
+    )
+}
+
+/// Exports the reusable query roots `scope` owns.
+///
+/// A retained local root may depend on a dependency-owned query: that edge is
+/// preserved as dependency fingerprint evidence (resolved from
+/// `dependency_fingerprints`, which must carry the immutable external
+/// evidence) and the external query itself never becomes a local root.
+/// `modules` and `world` must be the artifact's own scope-projected sections.
+pub fn export_query_image_v4_scoped(
+    scope: &super::projection::ArtifactProjectionScope,
+    queries: &crate::canonical_image::CanonicalSemanticQueryImage,
+    dependency_fingerprints: &crate::canonical_image::CanonicalDependencyFingerprints,
+    modules: &phalcom_compiler_artifact::module_world::ModuleWorldV2,
+    world: &phalcom_compiler_artifact::semantic::world::SemanticWorldV4,
+    limits: &ValidationLimits,
+) -> Result<phalcom_compiler_artifact::query::QueryImageV4, ArtifactError> {
     use crate::artifact::query_policy::{
         CanonicalQueryRootRequirement, canonical_query_root_requirement, portable_query_kind, query_kind_from_portable, query_root_is_reusable,
     };
@@ -5722,11 +5747,12 @@ pub fn export_query_image_v4(
 
     let required_source_root_count = queries
         .entries()
+        .filter(|(key, _)| scope.owns_query(key))
         .filter(|(key, _)| canonical_query_root_requirement(key.kind()) == CanonicalQueryRootRequirement::Required)
         .count();
 
     let mut candidates = Vec::new();
-    for (key, entry) in queries.entries() {
+    for (key, entry) in queries.entries().filter(|(key, _)| scope.owns_query(key)) {
         let requirement = canonical_query_root_requirement(key.kind());
         if requirement == CanonicalQueryRootRequirement::NotReusable {
             continue;
