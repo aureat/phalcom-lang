@@ -357,6 +357,116 @@ fn sample_module_world_with_core() -> phalcom_compiler_artifact::module_world::M
     phalcom_modules::compiler_artifact::project_module_world(&world, &ValidationLimits::default()).unwrap()
 }
 
+fn sample_package_module_world_with_core(
+    projects: &phalcom_modules::ProjectUniverse,
+    project: phalcom_modules::ResolvedProjectId,
+    stable_package: &StableProjectRef,
+    limits: &ValidationLimits,
+) -> phalcom_compiler_artifact::module_world::ModuleWorldV2 {
+    let universe = Arc::new(projects.clone());
+    let root = phalcom_modules::ModuleId::resolved(project, phalcom_modules::ModulePath::root());
+    let core = phalcom_modules::ModuleId::resolved(
+        project,
+        phalcom_modules::ModulePath::from_components(vec![
+            phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component"),
+        ]),
+    );
+    let root_interface = phalcom_modules::UnlinkedModuleInterface {
+        id: root.clone(),
+        kind: phalcom_modules::ModuleKind::Package,
+        declarations: std::collections::BTreeMap::new().into(),
+        exports: std::collections::BTreeMap::new().into(),
+        imports: vec![],
+        exposed_children: [phalcom_modules::ModuleComponent::from_identifier("core").expect("valid module component")]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let core_interface = phalcom_modules::UnlinkedModuleInterface {
+        id: core.clone(),
+        kind: phalcom_modules::ModuleKind::Module,
+        declarations: std::collections::BTreeMap::new().into(),
+        exports: std::collections::BTreeMap::new().into(),
+        imports: vec![],
+        exposed_children: std::collections::BTreeSet::new().into(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let linked_root = phalcom_modules::LinkedModuleInterface {
+        module: root.clone(),
+        kind: phalcom_modules::ModuleKind::Package,
+        exports: std::collections::BTreeMap::new().into(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let linked_core = phalcom_modules::LinkedModuleInterface {
+        module: core.clone(),
+        kind: phalcom_modules::ModuleKind::Module,
+        exports: std::collections::BTreeMap::new().into(),
+        metadata: phalcom_modules::ModuleMetadata::default(),
+    };
+    let mut modules = std::collections::BTreeMap::new();
+    for (id, interface) in [(root.clone(), linked_root.clone()), (core.clone(), linked_core.clone())] {
+        modules.insert(
+            id,
+            phalcom_modules::LinkedModule {
+                interface,
+                bindings: phalcom_modules::ModuleBindingLayout::default(),
+                linked_reads: vec![],
+                runtime_dependencies: vec![],
+            },
+        );
+    }
+    let linked = Arc::new(phalcom_modules::LinkedProgram {
+        universe: universe.clone(),
+        modules: modules.into(),
+        graphs: phalcom_modules::ModuleGraphs::default(),
+        entry: root.clone(),
+        initialization_order: vec![root.clone(), core.clone()],
+    });
+    let mut interfaces = std::collections::BTreeMap::new();
+    interfaces.insert(root.clone(), Arc::new(root_interface.clone()));
+    interfaces.insert(core.clone(), Arc::new(core_interface.clone()));
+    let mut unlinked = std::collections::BTreeMap::new();
+    unlinked.insert(root, root_interface);
+    unlinked.insert(core, core_interface);
+    let topology = Arc::new(phalcom_modules::ModuleTopology::from_parts(
+        phalcom_modules::ResolverGeneration(0),
+        &universe,
+        &unlinked,
+        &std::collections::BTreeMap::new(),
+    ));
+    let world = phalcom_modules::canonical_products::CanonicalExternalModuleWorld::from_parts(linked.clone(), interfaces, topology)
+        .expect("build resolved package module world");
+    let executable = phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked.as_ref().clone())
+        .expect("finalize empty package executable link");
+    let external = phalcom_modules::ExternalModuleAuthoritySet::from_worlds(universe, vec![])
+        .expect("empty external authority");
+    let stable_project = stable_package.clone();
+    let projected = phalcom_modules::compiler_artifact::project_package_module_world_v5(
+        &world,
+        &executable,
+        &external,
+        &|module| StableModuleRef {
+            project: stable_project.clone(),
+            path: module
+                .path
+                .components()
+                .iter()
+                .map(|component| component.as_str().into())
+                .collect::<Vec<Box<str>>>()
+                .into_boxed_slice(),
+        },
+        &phalcom_modules::AvailabilityContract::default(),
+        limits,
+    )
+    .expect("project resolved package module world");
+    projected
+        .try_into_v4()
+        .expect("closed package fixture has no external references")
+        .previous
+        .world
+}
+
 fn sync_empty_module_execution_authority(image: &mut CompilerArtifactImage) {
     let mut import_phase_products = image
         .module_world
@@ -2195,28 +2305,37 @@ fn exact_allocation_accounting_n_succeeds_n_minus_1_fails_and_retry_succeeds() {
 
 #[test]
 fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph() {
-    let mut image = sample_image();
     let stable_package = StableProjectRef::Package {
         package: "shared-package".into(),
         version: "2.4.1".into(),
         artifact_fingerprint: Fingerprint128([0x51; 16]),
     };
+    let limits = ValidationLimits::default();
+    let temp = tempfile::TempDir::new().expect("create package project root");
+    let project_root = temp.path().join("resolver-target");
+    std::fs::create_dir_all(project_root.join("src")).expect("create source root");
+    std::fs::write(
+        project_root.join("project.toml"),
+        "[project]\nname = \"shared-package\"\nnamespace = \"shared_package\"\nversion = \"2.4.1\"\n",
+    )
+    .expect("write project manifest");
+    std::fs::write(project_root.join("src/package.ph"), "").expect("write package source");
+    std::fs::write(project_root.join("src/core.ph"), "").expect("write core module source");
+    let mut projects = phalcom_modules::ProjectUniverse::new();
+    projects.use_package_identity_ids();
+    let project_id = projects.load_root(project_root.join("project.toml")).expect("load persistent resolver target");
+    assert_eq!(
+        project_id,
+        phalcom_modules::package_project_id("shared-package", "2.4.1"),
+        "package fixture must use the same identity-derived project id as production package capture"
+    );
+
+    let mut image = sample_image();
     image.header.package_identity = TeloscPackageIdentity::Package {
         package: "shared-package".into(),
         version: "2.4.1".into(),
     };
-
-    // A package artifact owns its root and child modules. The artifact's own
-    // stable package identity is local authority, never an external-project row.
-    image.module_world = sample_module_world_with_core();
-    for module in &mut image.module_world.modules {
-        module.identity.project = stable_package.clone();
-    }
-    image.module_world.external_projects.clear();
-    image
-        .module_world
-        .refresh_portable_topology_fingerprint()
-        .expect("refresh package topology fingerprint");
+    image.module_world = sample_package_module_world_with_core(&projects, project_id, &stable_package, &limits);
     sync_empty_module_execution_authority(&mut image);
 
     // Drop the Universe fixture's linked-interface root. This test publishes one
@@ -2274,23 +2393,9 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
     image.metadata.package_digest = image.header.package_identity.digest().0;
     let bytes = encode_artifact(&image).expect("encode package artifact");
 
-    let limits = ValidationLimits::default();
     let mut decode_budget = AllocationBudget::new(32 * 1024 * 1024);
     let validated_payload = decode_and_validate_artifact(&bytes, &limits, None, &mut decode_budget).expect("validate package bytes");
     let artifact_digest = validated_payload.header.artifact_digest;
-
-    let temp = tempfile::TempDir::new().expect("create package project root");
-    let project_root = temp.path().join("resolver-target");
-    std::fs::create_dir_all(project_root.join("src")).expect("create source root");
-    std::fs::write(
-        project_root.join("project.toml"),
-        "[project]\nname = \"resolver-target\"\nnamespace = \"resolver_target\"\nversion = \"1.0.0\"\n",
-    )
-    .expect("write project manifest");
-    std::fs::write(project_root.join("src/package.ph"), "").expect("write package source");
-    std::fs::write(project_root.join("src/core.ph"), "").expect("write core module source");
-    let mut projects = phalcom_modules::ProjectUniverse::new();
-    let project_id = projects.load_root(project_root.join("project.toml")).expect("load persistent resolver target");
     let receipt = phalcom_modules::ValidatedPackageAuthorityReceipt::from_trusted_resolver(stable_package.clone(), artifact_digest, project_id)
         .expect("make trusted resolver receipt");
     struct Resolver(phalcom_modules::ValidatedPackageAuthorityReceipt);
@@ -2368,25 +2473,29 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         "live topology fingerprints include the distinct receiving workspace graphs"
     );
 
-    // Build an independent receiving graph with an unrelated project allocated
-    // first so the exact same stable package is bound to a different local
-    // ResolvedProjectId. Portable query fingerprints must remain valid.
+    // Build an independent receiving graph with an unrelated project admitted
+    // first. Package identity ids must keep the package's native ModuleId stable
+    // across admission sets, which is what makes interface fingerprints reusable.
     let second_target_root = temp.path().join("resolver-target-second");
     std::fs::create_dir_all(second_target_root.join("src")).expect("create second source root");
     std::fs::write(
         second_target_root.join("project.toml"),
-        "[project]\nname = \"resolver-target-second\"\nnamespace = \"resolver_target_second\"\nversion = \"1.0.0\"\n",
+        "[project]\nname = \"shared-package\"\nnamespace = \"shared_package\"\nversion = \"2.4.1\"\n",
     )
     .expect("write second project manifest");
     std::fs::write(second_target_root.join("src/package.ph"), "").expect("write second package source");
     std::fs::write(second_target_root.join("src/core.ph"), "").expect("write second core module source");
 
     let mut relocated_projects = phalcom_modules::ProjectUniverse::new();
-    relocated_projects.load_root(unrelated_manifest).expect("allocate unrelated graph node first");
+    relocated_projects.use_package_identity_ids();
+    relocated_projects.load_root(unrelated_manifest).expect("admit unrelated graph node first");
     let relocated_project_id = relocated_projects
         .load_root(second_target_root.join("project.toml"))
-        .expect("load relocated resolver target");
-    assert_ne!(project_id, relocated_project_id, "test must exercise different graph-local project IDs");
+        .expect("load package in independently ordered graph");
+    assert_eq!(
+        project_id, relocated_project_id,
+        "package identity ids must be stable across unrelated project admission order"
+    );
 
     let relocated_receipt =
         phalcom_modules::ValidatedPackageAuthorityReceipt::from_trusted_resolver(stable_package.clone(), artifact_digest, relocated_project_id)
