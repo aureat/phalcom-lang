@@ -2525,10 +2525,10 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
             .is_some(),
         "second receiving graph must publish the same portable root under its own local owner"
     );
-    assert_ne!(
+    assert_eq!(
         package_owner.module.project,
         phalcom_modules::ProjectIdentity::Resolved(relocated_project_id),
-        "local DB identities differ even though portable artifact authority is identical"
+        "package identity ids keep the package-owned query root stable across receiving graph order"
     );
 }
 
