@@ -101,7 +101,7 @@ fn unit_is_not_a_separate_intrinsic_semantic_declaration() {
     let mut store = TypeStore::new();
     let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
     let unit_module = ModuleId::universe(ModulePath::from_components(vec![
-        ModuleComponent::from_identifier("option").unwrap(),
+        ModuleComponent::from_identifier("scalar").unwrap(),
         ModuleComponent::from_identifier("unit").unwrap(),
     ]));
     let unit = DeclarationId::new(unit_module, "Unit".into());
@@ -136,7 +136,7 @@ fn runtime_structural_declarations_bind_canonical_platform_owners() {
         assert_eq!(declarations.runtime_form(&mut store, &declaration), Some(expected_runtime_form));
     }
     let unit_module = ModuleId::universe(ModulePath::from_components(vec![
-        ModuleComponent::from_identifier("option").unwrap(),
+        ModuleComponent::from_identifier("scalar").unwrap(),
         ModuleComponent::from_identifier("unit").unwrap(),
     ]));
     let unit = DeclarationId::new(unit_module, "Unit".into());

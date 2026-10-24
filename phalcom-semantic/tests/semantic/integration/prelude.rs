@@ -51,7 +51,7 @@ fn prelude_map_contains_only_explicit_source_backed_type_names() {
         let declaration = prelude.get(name).unwrap_or_else(|| panic!("{name} must be in the canonical prelude"));
         if name == "Unit" {
             let unit_module = ModuleId::universe(ModulePath::from_components(vec![
-                ModuleComponent::from_identifier("option").unwrap(),
+                ModuleComponent::from_identifier("scalar").unwrap(),
                 ModuleComponent::from_identifier("unit").unwrap(),
             ]));
             assert_eq!(declaration, &DeclarationId::new(unit_module, "Unit".into()));
@@ -156,7 +156,7 @@ fn unqualified_unit_type_reference_uses_exact_prelude_alias_declaration() {
 
     let current = synthetic_module();
     let unit_module = ModuleId::universe(ModulePath::from_components(vec![
-        ModuleComponent::from_identifier("option").unwrap(),
+        ModuleComponent::from_identifier("scalar").unwrap(),
         ModuleComponent::from_identifier("unit").unwrap(),
     ]));
     let unit_declaration = DeclarationId::new(unit_module, "Unit".into());
