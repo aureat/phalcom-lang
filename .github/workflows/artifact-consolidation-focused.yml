@@ -49,6 +49,22 @@ jobs:
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
           check -p phalcom-semantic --test semantic
+      - name: Flow provenance fixpoint regression
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-semantic --lib
+          types::evidence::tests::flow_join_provenance_is_idempotent_across_repeated_fixpoint_joins
+          -- --exact
+      - name: Semantic artifact gates
+        run: |
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::compatibility_tests
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test artifact_query_import_test
+      - name: Compiler artifact round trips
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'build.rustc-wrapper=""'
+          test -p phalcom-compiler-artifact --test round_trip_test
       - name: Imported-image local-overlay regression
         run: >-
           cargo +nightly-2026-07-10
@@ -68,15 +84,6 @@ jobs:
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::query_policy::tests -- --nocapture
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::export::query_export_required_root_tests -- --nocapture
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib canonical_image::tests::required_query_profile_roots_are_canonical_immutable_leaves -- --exact --nocapture
-      - name: Semantic artifact gates
-        run: |
-          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::compatibility_tests
-          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test artifact_query_import_test
-      - name: Compiler artifact round trips
-        run: >-
-          cargo +nightly-2026-07-10
-          --config 'build.rustc-wrapper=""'
-          test -p phalcom-compiler-artifact --test round_trip_test
 
 
   universe-cli-smoke:

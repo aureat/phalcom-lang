@@ -2205,15 +2205,28 @@ fn package_artifact_import_registers_trusted_receipt_in_retained_workspace_graph
         package: "shared-package".into(),
         version: "2.4.1".into(),
     };
-    image.module_world.external_projects = vec![stable_package.clone()];
-    let stable_module = StableModuleRef {
-        project: stable_package.clone(),
-        path: vec!["core".into()].into_boxed_slice(),
-    };
+
+    // A package artifact owns its root and child modules. The artifact's own
+    // stable package identity is local authority, never an external-project row.
+    image.module_world = sample_module_world_with_core();
+    for module in &mut image.module_world.modules {
+        module.identity.project = stable_package.clone();
+    }
+    image.module_world.external_projects.clear();
     image
         .module_world
         .refresh_portable_topology_fingerprint()
         .expect("refresh package topology fingerprint");
+    sync_empty_module_execution_authority(&mut image);
+
+    // Drop the Universe fixture's linked-interface root. This test publishes one
+    // package-owned DataDeclaration root from the local core module.
+    image.query_image.supported_roots.clear();
+    image.query_image.dependency_evidence.clear();
+    let stable_module = StableModuleRef {
+        project: stable_package.clone(),
+        path: vec!["core".into()].into_boxed_slice(),
+    };
 
     let stable_cached_owner = StableDeclarationRef {
         module: StableModuleRef {
