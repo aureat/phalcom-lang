@@ -53,8 +53,3 @@ path = "tests/module_static_binding_fingerprint.rs"
 [[test]]
 name = "artifact-allocation"
 path = "tests/semantic/artifact_allocation.rs"
-
-
-[[test]]
-name = "artifact_query_import_test"
-path = "tests/artifact_query_import_test.rs"

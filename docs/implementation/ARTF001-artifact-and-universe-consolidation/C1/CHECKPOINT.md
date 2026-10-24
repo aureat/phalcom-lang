@@ -25,7 +25,38 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 | `ARTF001.C1.P5` | PROPOSED | NOT_STARTED | UNVERIFIED | Universe source cutover from `phalcom-core/core/universe` to `packages/universe` retaining `ProjectIdentity::Universe`. |
 | `ARTF001.C1.P6` | PROPOSED | NOT_STARTED | UNVERIFIED | Universal artifact resolution across CLI, REPL, VM bootstrap, and tests with persistent cache ergonomics. |
 
-## Current continuation state (2026-10-22)
+## Closure continuation (2026-10-24)
+
+Active plan remains P2.R4. The supplied assessment names `84e58af20`; the
+initial local checkout was behind it at `fd9bd5e0e`. Fetch/reconciliation
+retains the remote receipt, session-parent, provenance, Universe and SHA-1
+fixes. Earlier local investigations of those already-fixed defects are not
+current blockers or additional production changes.
+
+The immediate slice moves the stale query integration cases to
+`artifact::query::query_owner_catalog_regressions`, exercises the current
+resolver with an explicit V5 owner catalog, removes the retired Cargo target,
+and updates focused CI. The compatibility importer remains test-only.
+
+A read-only adviser confirmed that the updated branch already attaches the
+canonical/external-seed module-binding parent correctly. Its earlier
+stale-checkout aggregate/accessor advice is superseded; no such change is
+included. The remote's package-owned receipt fixture is preserved unchanged.
+
+Current-head focused gates passed after reconciliation: semantic library and
+integration checks, 35 library unit tests (owner 4, compatibility 20, policy 6,
+required-root export 1, immutable leaves 1, image-backed publication 3), four
+image-session/zero-copy integration tests, and 13 compiler artifact round trips.
+The query-test slice is `IMPLEMENTED / FOCUSED_TESTED`; P2.R4 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. No final P2/general-artifact
+acceptance receipt exists. Scoped `git diff --check` passed.
+
+Next: push the tested migration and observe focused CI, then prove real
+SlotMap full-package execution with source removal, determinism and hostile
+controls, and execute the existing SHA-1 vectors on source/artifact VM routes.
+Broader gates follow only after those focused paths pass.
+
+## Historical continuation state (2026-10-22)
 
 - Latest fetched and pulled revision: `26dc1752f` on `feat/artifact-universe-consolidation`. The local trait-requirement and forwarded-conformance corrections passed the full source-free SlotMap discriminator and saved-artifact reuse run. P7 ancestry merged at `f1d2b6dc7b70fd0bab7c3f4abe5f2fe4def3645a` with P7 reference head `077d93d3bfcd5d3bca0127c4aac18abb55c2ed94`.
 - Active plan: `ARTF001.C1.P2.R4`, superseding `ARTF001.C1.P2.R3`.
@@ -34,7 +65,7 @@ Establish the unified mainline integration branch, freeze starting baselines, re
 - Next action: close the remaining R4.T7 source/artifact compiler and negative-diagnostic parity gates. Source-free executable SlotMap runtime proof now exists for the focused working-tree state; broader P2/P8 acceptance remains open.
 - Branch rule: Continue on `feat/artifact-universe-consolidation`.
 
-## General artifact compilation continuation (2026-10-23)
+## Historical general artifact continuation (2026-10-23)
 
 Detailed slice contracts remain in `docs/implementation-spec/artifact-compilation/`. Slice E is implemented and focused-tested: core holds `ModuleWorldV5` above the decoder while the Universe builder retains V4 wire bytes; the compatibility semantic importer lifts decoded V2 module worlds once before calling V5 loaders. `RUSTFLAGS='' cargo check -p phalcom-core --lib --test core` and `RUSTFLAGS='' cargo test -p phalcom-core --lib --no-run` passed. Inherited core target failures remain recorded in that spec's `baseline-failures.md`.
 

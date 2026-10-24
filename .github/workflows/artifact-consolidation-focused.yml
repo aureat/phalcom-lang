@@ -59,7 +59,7 @@ jobs:
       - name: Semantic artifact gates
         run: |
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::compatibility_tests
-          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test artifact_query_import_test
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --lib artifact::query::query_owner_catalog_regressions -- --nocapture
       - name: Compiler artifact round trips
         run: >-
           cargo +nightly-2026-07-10
